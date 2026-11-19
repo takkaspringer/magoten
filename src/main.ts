@@ -6,13 +6,13 @@ import { Battle } from './battle'
 import type { BattleMode } from './battle'
 import { challengeArena, combo, finale, gateBarrier, levels, obstacles, opening, people, world } from './data'
 import type { Point, TownPerson } from './data'
-import { arrival, bridgeLock, demonObstacles, demonPeople, demonPortal, demonWorld, kingdomPortal, playableDemons, smallDoorLock } from './demon'
+import { arrival, bridgeLock, demonObstacles, demonPeople, demonPortal, demonWorld, kingdomPortal, knightExit, playableDemons, smallDoorLock } from './demon'
 import type { Realm } from './demon'
 import { demonTown, kingdomArrival } from './demon-art'
 import { cast, defaults, load, persist, recordRescue } from './save'
 import type { Score } from './save'
 
-type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary' | 'arrival' | 'demon-title'
+type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary' | 'arrival' | 'demon-title' | 'knight-story'
 type Panel = 'pause' | 'help' | 'settings' | 'journal'
 type Result = { person: TownPerson; score: Score; notice: string; record: boolean; mode: BattleMode }
 
@@ -112,7 +112,7 @@ function releasePad() {
 
 function sizeCanvas() {
   const mobile=narrow.matches
-  const townScene=screen==='town'||screen==='ending'||screen==='result'||screen==='summary'||screen==='arrival'||screen==='demon-title'
+  const townScene=screen!=='title'&&screen!=='intro'
   if(screen==='battle') { canvas.width=384; canvas.height=344 }
   else if(townScene) { canvas.width=mobile?320:520; canvas.height=mobile?400:320 }
   else { canvas.width=mobile?320:640; canvas.height=mobile?460:360 }
@@ -361,6 +361,12 @@ function render() {
       footer.textContent='その後の王国'
       break
     }
+    case 'knight-story': {
+      const line=knightExit[arrivalLine]
+      overlay.innerHTML=bubble(line.speaker,line.text,'next',true)
+      footer.textContent=''
+      break
+    }
     case 'demon-title':
       overlay.innerHTML=`<div class="chapter-title"><div><h2>魔王編</h2><p>勇者、魔王の背中をまかされる</p>
         ${button('next','つぎへ <span aria-hidden="true">▶</span>','primary')}</div></div>`
@@ -541,6 +547,9 @@ function advance() {
     else { arrivalLine++; sceneTime=0; render() }
   } else if(screen==='demon-title') {
     go('town')
+  } else if(screen==='knight-story') {
+    if(arrivalLine+1===knightExit.length) go('town')
+    else { arrivalLine++; sceneTime=0; render() }
   } else if(screen==='ending') {
     if(ending===finale.length-1) {
       save.ended=true
@@ -577,6 +586,7 @@ function action(id: string) {
     case 'skip':
       if(screen==='intro') startTown()
       else if(screen==='arrival') openPortal()
+      else if(screen==='knight-story') go('town')
       else if(screen==='town'&&dialogue?.kind==='entry') enterBattle(dialogue.person)
       else if(screen==='ending') { ending=finale.length-1; advance() }
       break
@@ -595,6 +605,7 @@ function action(id: string) {
     case 'replay': if(dialogue&&(realm==='demon'?save.demonEnded:save.ended)) enterBattle(dialogue.person,'replay'); break
     case 'result-next':
       if(allRescued()&&!save.ended) { ending=0; go('ending') }
+      else if(result?.mode==='story'&&result.person.id==='knight') { arrivalLine=0; go('knight-story') }
       else go('town')
       break
     case 'back-town':
@@ -653,7 +664,7 @@ window.addEventListener('keydown',e=>{
     return
   }
   if(e.code==='Enter' && !e.repeat && !panel&&!newConfirm &&
-    !(e.target instanceof HTMLButtonElement) && (screen==='intro'||screen==='ending'||screen==='arrival'||screen==='demon-title'||dialogue)) {
+    !(e.target instanceof HTMLButtonElement) && (screen==='intro'||screen==='ending'||screen==='arrival'||screen==='demon-title'||screen==='knight-story'||dialogue)) {
     e.preventDefault()
     action('next')
   }

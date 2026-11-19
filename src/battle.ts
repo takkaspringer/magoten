@@ -66,6 +66,7 @@ export class Battle {
   private companionHint?: Point & { until: number }
   private linkCandidate?: Point & { until: number }
   private linkTrail = 0
+  private barkCue = -1
   private finishTime = 0
   private message?: { text: string; left: number; priority: number }
   private reaction = 0
@@ -117,6 +118,16 @@ export class Battle {
   get readyForResult() { return this.finishTime>=(this.demon?1.85:1.06) && !this.message }
   private get dogMotion() { return this.person.id==='dog'?this.elapsed%5:0 }
   private get dogShake() { return !this.reduced()&&this.dogMotion>=3.85?Math.round(Math.sin(this.elapsed*42)*6):0 }
+  private get breath() { return this.person.id==='knight'?this.elapsed%3.5:0 }
+  private get claspOpen() { return this.person.id!=='knight'||(this.breath>=1.55&&this.breath<2.83) }
+  private get cueBeat() { return Math.floor(this.elapsed/3.65) }
+  private get cueTarget() {
+    if(this.person.id!=='kerberos') return undefined
+    const left=this.itches.filter(i=>i.progress<3)
+    return left.length?left[this.cueBeat%left.length]:undefined
+  }
+
+  private get headsAgree() { return this.cueBeat%2===1&&this.elapsed%3.65<2.25 }
 
   get hint() {
     if(this.challenge&&this.done) return '時間切れ！'
@@ -127,6 +138,11 @@ export class Battle {
     if(this.fleas.some(f=>f.phase==='hidden')) return '震えるかゆみをこすって 追い出せ！'
     if(this.remainingCovers) return 'ひらひらの端を 矢印のほうへスワイプ！'
     if(this.fleas.some(f=>f.phase!=='gone'&&f.spec.veil==='leaf')) return 'はっぱが ゆれた先を 見よう！'
+    if(this.person.id==='knight'&&this.remainingClasps) {
+      return this.claspOpen?'いま！ 開いた留め具をたたこう！'
+        : this.breath>=.78?'肩が上がった…… もうすぐ開く！':'団長の肩を見て、留め具が開くのを待とう'
+    }
+    if(this.cueTarget) return this.headsAgree?'わん！（そこ！） みんなが向いた所をこすろう！':'ふり返った頭と 肉球の先をこすろう！'
     if(this.remainingClasps) return '金色の留め具をタップして開けよう！'
     if(this.dogMotion>=3.85) return 'ブルブル中！ 止まるとかきやすいよ'
     if(this.dogMotion>=3.15) return '耳が動いた！ もうすぐブルブル'
@@ -190,6 +206,10 @@ export class Battle {
     this.elapsed=this.challenge?Math.min(challengeLimit,this.elapsed+dt):this.elapsed+dt
     this.feverTime=Math.max(0,this.feverTime-dt)
     if(this.demon&&!this.hintShown&&!this.gesture&&this.elapsed-this.lastInput>=8) this.pointWithDog()
+    if(this.cueTarget&&this.headsAgree&&this.barkCue!==this.cueBeat) {
+      this.barkCue=this.cueBeat
+      this.sound('dog')
+    }
     if(this.challenge) {
       if(this.done) return
       if(this.elapsed>=this.nextWave || (!this.remainingFleas&&!this.remainingItches)) this.spawnWave()
@@ -320,17 +340,20 @@ export class Battle {
     g.axis={x:-g.axis.x,y:-g.axis.y}
     g.extent=-projected
     const effect=this.feverTime>0?2.15:1
-    itch.progress=Math.min(3,itch.progress+effect*(this.dogMotion>=3.85?.4:1))
+    const cue=this.cueTarget
+    const agreed=cue===itch&&this.headsAgree
+    const rhythm=cue?agreed?1.75:cue===itch?1.25:.62:this.dogMotion>=3.85?.4:1
+    itch.progress=Math.min(3,itch.progress+effect*rhythm)
     if(itch.progress===3) {
       const link=this.linkCandidate&&this.linkCandidate.until>=this.elapsed&&distance(itch,this.linkCandidate)<104
-      this.addAction(link?340:135,link?35:25)
+      this.addAction(link?340:agreed?245:135,link||agreed?35:25)
       if(link) {
         this.linkCandidate=undefined
         this.linkTrail=1.6
       }
       const reveals=!!(itch.hidden||itch.fugitive)
       this.bursts.push({x:itch.x,y:itch.y,age:0,type:'scratch',quietText:reveals})
-      this.announce(link?'そこそこ！ 連係':'そこそこぉ〜！',1.05,link?2:0)
+      this.announce(link?'そこそこ！ 連係':agreed?'四つの頭がそろった！ ボーナス！':'そこそこぉ〜！',1.05,link?2:0)
       this.reaction=1.05
       this.sound(link?'link':'scratch')
       if(itch.hidden||itch.fugitive) this.reveal(itch,itch.fugitive ?? this.makeFlea(itch.hidden!))
@@ -404,6 +427,10 @@ export class Battle {
     }
     const clasp=this.clasps.find(c=>!c.opened&&distance(c,p)<=22)
     if(clasp) {
+      if(!this.claspOpen) {
+        this.announce('まだ閉じている。肩の合図を待とう！',.68,0)
+        return
+      }
       clasp.opened=true
       this.addAction(70,0)
       this.reveal(clasp,this.makeFlea(clasp.flea),false)
@@ -429,7 +456,8 @@ export class Battle {
       else battleBase(art,this.person)
     }
     const reduced=this.reduced()
-    const ease=reduced?0:this.finishTime>.35?3:this.reaction>0?Math.round(Math.sin(Math.min(1,this.reaction)*Math.PI)*3):0
+    const breathLift=this.breath>=.8&&this.breath<2.83?Math.round(Math.min(1,(this.breath-.8)*2.2)*5):0
+    const ease=reduced?0:this.finishTime>.35?3:this.reaction>0?Math.round(Math.sin(Math.min(1,this.reaction)*Math.PI)*3):-breathLift
     const shake=reduced?0:this.dogShake
     box(c,this.person.id==='dog'?'#374e44':'#253b3d',0,0,384,344)
     c.drawImage(this.base,shake,ease)
@@ -458,6 +486,17 @@ export class Battle {
     }
     c.save()
     c.translate(shake,0)
+    const spot=this.cueTarget
+    if(spot) {
+      const head=spot.x<153?126:spot.x>232?258:193
+      for(const hx of this.headsAgree?[126,193,258]:[head]) {
+        const side=spot.x<hx?-1:1
+        box(c,'#3c2e47',hx+side*13-8,85,17,12)
+        box(c,'#ffe4aa',hx+side*16-6,89,13,4)
+        box(c,'#5e4257',hx+side*17,89,4,4)
+      }
+      paw(c,spot.x,spot.y-27,this.headsAgree?'#ffe7a2':'#f3d9ad')
+    }
     for(const cover of this.covers) {
       if(!cover.opened) this.clothEdge(c,cover,reduced)
     }
@@ -467,10 +506,20 @@ export class Battle {
         poly(c,'#3d4057',[x-30,y-24,x+21,y-23,x+28,y+7,x+17,y+31,x-27,y+21])
         poly(c,this.person.id==='royal'?'#ba686f':'#849db0',[x-27,y-21,x+17,y-20,x+24,y+6,x+15,y+26,x-24,y+18])
         box(c,'#484457',x-15,y-10,30,22)
-        box(c,'#e4b568',x-11,y-8,22,17)
-        box(c,'#ffed9d',x-8,y-6,16,3)
+        box(c,this.claspOpen?'#e4b568':'#a39085',x-11,y-8,22,17)
+        box(c,this.claspOpen?'#ffed9d':'#c9ac95',x-8,y-6,16,3)
         box(c,'#79505a',x-4,y,8,6)
-        if(Math.floor(this.elapsed*4)%3===0) box(c,'#fff2a8',x+15,y-13,4,4)
+        if(this.person.id==='knight'&&this.breath>=.78&&this.breath<2.83) {
+          const rise=this.claspOpen?13:7
+          for(const side of [-1,1]) {
+            const xx=x+side*22
+            poly(c,'#ffe2a8',[xx-5,y-6-rise,xx,y-13-rise,xx+5,y-6-rise,xx+2,y-6-rise,xx+2,y+1-rise,xx-2,y+1-rise,xx-2,y-6-rise])
+          }
+          if(this.claspOpen) {
+            box(c,'#ffecab',x-14,y-13,28,2)
+            box(c,'#ffecab',x-14,y+11,28,2)
+          }
+        } else if(Math.floor(this.elapsed*4)%3===0&&this.claspOpen) box(c,'#fff2a8',x+15,y-13,4,4)
       } else {
         box(c,'#4d4357',x-10,y-6,6,15)
         box(c,'#b89868',x+7,y-5,7,12)
