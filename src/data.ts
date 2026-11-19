@@ -52,6 +52,9 @@ export const combo = {
   tip: 'こすると、ノミが出てくるぞ！',
 }
 
+export const challengeLimit = 60
+export const feverDuration = 6
+
 export const captain = {
   retreatTime: 1.7,
   retreatLine: 'そ、その背中はわしの城だぞ！',
@@ -221,4 +224,10 @@ export const levels = [
   {xp:400,radius:28,hit:6,speed:127,fever:true,notice:'必殺技 かきかきフィーバー解放！'},
   {xp:600,radius:31,hit:8,speed:136,fever:true,notice:'伝説の孫の手になった！'},
 ]
+
+export const challengeArena: TownPerson = {
+  id:'challenge',name:'背中の勇者モード',district:'60秒スコアアタック',at:world.start,
+  entry:[],rescued:'',shirt:['#795477','#c595b1','#493951'],hair:'#bca6b5',xp:0,
+  targets:{gold:0,silver:0,silverMisses:0},itches:[],fleas:[],
+}
 

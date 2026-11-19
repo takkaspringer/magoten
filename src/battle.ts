@@ -1,5 +1,5 @@
 import { battleBase, box, dogTail, fleaArt, label, poly, toolArt } from './art'
-import { captain, combo, levels, scout } from './data'
+import { captain, challengeLimit, combo, feverDuration, levels, scout } from './data'
 import type { ClaspSpec, FleaSpec, ItchSpec, Point, TownPerson } from './data'
 
 type Phase = 'warning' | 'jump' | 'feint' | 'land' | 'retreat' | 'hidden' | 'emerge' | 'gone'
@@ -33,10 +33,15 @@ type Burst = Point & {
   type: 'hit' | 'scratch' | 'miss' | 'combo' | 'escape' | 'pop' | 'retreat'
   quietText?: boolean
 }
-export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo'
+export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo' | 'fever'
+export type BattleMode = 'story' | 'replay' | 'trial' | 'challenge'
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x-b.x,a.y-b.y)
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(value, low))
+const waveSpots: Point[] = [
+  {x:110,y:159},{x:178,y:147},{x:253,y:158},{x:275,y:208},
+  {x:239,y:252},{x:171,y:253},{x:108,y:235},{x:152,y:201},{x:220,y:202},
+]
 
 export class Battle {
   elapsed = 0
@@ -44,6 +49,14 @@ export class Battle {
   misses = 0
   combos = 0
   defeated = 0
+  points = 0
+  maxChain = 0
+  charge = 0
+  feverTime = 0
+  private lastAction = -Infinity
+  private streak = 0
+  private wave = 0
+  private nextWave = 0
   private finishTime = 0
   private message?: { text: string; left: number; priority: number }
   private reaction = 0
@@ -56,13 +69,14 @@ export class Battle {
   private base?: HTMLCanvasElement
   private level: (typeof levels)[number]
 
-  constructor(public person: TownPerson, level: number, public replay: boolean, public trial: boolean,
+  constructor(public person: TownPerson, level: number, public mode: BattleMode,
     private sound: (event: BattleEvent) => void, private showComboTip: boolean) {
     this.level = levels[level]
     this.itches = person.itches.map(p=>({...p,progress:0}))
     this.clasps = (person.clasps ?? []).map(clasp=>({...clasp,opened:false}))
     this.fleas = person.fleas.map(spec=>this.makeFlea(spec))
     if(person.id==='royal') this.announce('ノミ魔王が あらわれた！',1.65,2)
+    if(this.challenge) this.spawnWave()
   }
 
   private makeFlea(spec: FleaSpec): Flea {
@@ -76,12 +90,21 @@ export class Battle {
   get remainingFleas() { return this.fleas.filter(f=>f.phase!=='gone').length }
   get remainingItches() { return this.itches.filter(i=>i.progress<3).length }
   get remainingClasps() { return this.clasps.filter(c=>!c.opened).length }
-  get done() { return this.remainingFleas===0 && this.remainingItches===0 && this.remainingClasps===0 }
+  get challenge() { return this.mode==='challenge' }
+  get timeLeft() { return Math.ceil(Math.max(0,challengeLimit-this.elapsed)) }
+  get canUseFever() { return this.level.fever }
+  get feverReady() { return this.canUseFever && this.charge>=100 && this.feverTime<=0 && !this.done }
+  get chain() { return this.elapsed-this.lastAction<=4.8?this.streak:0 }
+  get done() {
+    if(this.challenge) return this.elapsed>=challengeLimit
+    return this.remainingFleas===0 && this.remainingItches===0 && this.remainingClasps===0
+  }
   get readyForResult() { return this.finishTime>=1.06 && !this.message }
   private get dogMotion() { return this.person.id==='dog'?this.elapsed%5:0 }
   private get dogShake() { return this.dogMotion>=3.85?Math.round(Math.sin(this.elapsed*42)*6):0 }
 
   get hint() {
+    if(this.challenge&&this.done) return '時間切れ！'
     if(this.message) return this.message.text
     if(this.done) return '背中、すっきり！'
     if (this.person.id==='baker') return this.remainingFleas ? 'ノミは 着地したらタップ！' : '光るところを 左右か上下にこすれ！'
@@ -95,6 +118,39 @@ export class Battle {
     if(this.fleas.some(f=>f.spec.kind==='captain' && f.phase!=='gone')) return 'ピョン隊長は 二度目の着地をねらえ！'
     if(this.remainingItches && this.remainingFleas) return '着地を待つ間に 光るところをこすれ！'
     return this.remainingItches ? '光るところを こすれ！' : 'ノミは 着地したらタップ！'
+  }
+
+  activateFever() {
+    if(!this.feverReady) return
+    this.charge=0
+    this.feverTime=feverDuration
+    this.announce('かきかきフィーバー！',1.3,2)
+    this.sound('fever')
+  }
+
+  private addAction(points: number, charge: number) {
+    this.streak=this.chain+1
+    this.lastAction=this.elapsed
+    this.maxChain=Math.max(this.maxChain,this.streak)
+    this.points+=points+Math.min(10,this.streak-1)*25
+    if(this.canUseFever && this.feverTime<=0) this.charge=Math.min(100,this.charge+charge)
+  }
+
+  private spawnWave() {
+    this.fleas=this.fleas.filter(f=>f.phase!=='gone')
+    this.itches=this.itches.filter(i=>i.progress<3)
+    const wave=this.wave++
+    const spots=waveSpots.map((_,i)=>waveSpots[(i+wave*4)%waveSpots.length])
+    const count=Math.min(4-this.fleas.length, wave%2===0?2:1)
+    for(let i=0;i<count;i++) {
+      const route=[spots[i],spots[i+4],spots[i+6]]
+      this.fleas.push(this.makeFlea(scout(route,-i*.52)))
+    }
+    for(const p of spots.slice(2,5)) {
+      if(this.itches.length>=5 || this.itches.some(i=>distance(i,p)<31)) continue
+      this.itches.push({...p,progress:0,hidden:wave%3===2&&p===spots[2]?scout([spots[0],spots[5],spots[6]]):undefined})
+    }
+    this.nextWave=this.elapsed+3.8
   }
 
   private announce(text: string, seconds: number, priority=0) {
@@ -113,7 +169,12 @@ export class Battle {
       this.finishTime+=dt
       return
     }
-    this.elapsed+=dt
+    this.elapsed=this.challenge?Math.min(challengeLimit,this.elapsed+dt):this.elapsed+dt
+    this.feverTime=Math.max(0,this.feverTime-dt)
+    if(this.challenge) {
+      if(this.done) return
+      if(this.elapsed>=this.nextWave || (!this.remainingFleas&&!this.remainingItches)) this.spawnWave()
+    }
     for(const f of this.fleas) {
       if(f.phase==='gone'||f.phase==='hidden') continue
       f.time+=dt
@@ -214,8 +275,10 @@ export class Battle {
     if(g.extent-projected<7) return
     g.axis={x:-g.axis.x,y:-g.axis.y}
     g.extent=-projected
-    itch.progress=Math.min(3,itch.progress+(this.dogMotion>=3.85?.4:1))
+    const effect=this.feverTime>0?2.15:1
+    itch.progress=Math.min(3,itch.progress+effect*(this.dogMotion>=3.85?.4:1))
     if(itch.progress===3) {
+      this.addAction(135,25)
       const reveals=!!(itch.hidden||itch.fugitive)
       this.bursts.push({x:itch.x,y:itch.y,age:0,type:'scratch',quietText:reveals})
       this.announce('そこそこぉ〜！',1.05)
@@ -252,6 +315,7 @@ export class Battle {
       this.hits++
       f.strikes++
       if(f.spec.kind==='king' && f.strikes===1) {
+        this.addAction(85,0)
         f.from=f.to
         f.to=(f.to+1)%f.spec.route.length
         f.phase='warning'
@@ -266,6 +330,7 @@ export class Battle {
         return
       }
       if(f.spec.hideAt && !f.emerged) {
+        this.addAction(95,0)
         f.phase='retreat'
         f.time=0
         this.bursts.push({...at,age:0,type:'retreat'})
@@ -275,6 +340,7 @@ export class Battle {
       }
       f.phase='gone'
       this.defeated++
+      this.addAction(f.comboReady?360:f.spec.hideAt?270:185,36)
       if(f.comboReady) {
         this.combos++
         this.announce('かき出しコンボ！',1.15,2)
@@ -289,11 +355,13 @@ export class Battle {
     const clasp=this.clasps.find(c=>!c.opened&&distance(c,p)<=22)
     if(clasp) {
       clasp.opened=true
+      this.addAction(70,0)
       this.reveal(clasp,this.makeFlea(clasp.flea),false)
       this.announce('カチッ！ ノミが飛び出した！',1.25,3)
       this.sound('pop')
     } else if(!g.itch && this.remainingFleas) {
       this.misses++
+      this.streak=0
       this.bursts.push({...p,age:0,type:'miss'})
       this.sound('miss')
     }
@@ -320,6 +388,20 @@ export class Battle {
           box(c,'#f9de9d',x+3,53,2,6)
         }
       }
+    }
+    if(this.feverTime>0) {
+      const palette=['#ffd16e','#f28b70','#fff0ab']
+      for(let i=0;i<20;i++) {
+        const phase=(feverDuration-this.feverTime)*1.4+i*.314
+        const x=192+Math.cos(phase)*(169+Math.sin(phase*3)*12)
+        const y=170+Math.sin(phase)*149
+        const color=palette[i%palette.length]
+        box(c,color,x-4,y,9,2)
+        box(c,color,x,y-4,2,9)
+      }
+      box(c,'#f2a555',0,0,384,4)
+      box(c,'#fff0a2',3,3,378,2)
+      box(c,'#f2a555',0,340,384,4)
     }
     c.save()
     c.translate(shake,0)
@@ -412,6 +494,13 @@ export class Battle {
         box(c,'#ffe1a5',x+offset-4,y+ease+8,5,2)
       }
       if(king) {
+        if(this.elapsed<1.65||f.strikes>0) {
+          const orbit=this.elapsed*3
+          for(let i=0;i<5;i++) {
+            const phase=orbit+i*1.26
+            box(c,f.strikes===0?'#e081a0':'#f2b370',x+Math.cos(phase)*33,y+ease-height+Math.sin(phase)*26,3,3)
+          }
+        }
         for(const offset of [-1,1]) box(c,'#c57c9b',x+offset*22,y+ease-height-6,5,3)
       }
       fleaArt(c,x,y+ease-height,captain||king,king?1.72:1)

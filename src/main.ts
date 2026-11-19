@@ -3,65 +3,26 @@ import { backdrop, fleaArt, hero, personArt, town } from './art'
 import type { Camera } from './art'
 import { Audio } from './audio'
 import { Battle } from './battle'
-import { combo, finale, gateBarrier, levels, obstacles, opening, people, world } from './data'
+import type { BattleMode } from './battle'
+import { challengeArena, combo, finale, gateBarrier, levels, obstacles, opening, people, world } from './data'
 import type { Point, TownPerson } from './data'
+import { defaults, load, persist, recordRescue } from './save'
+import type { Score } from './save'
 
 type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary'
-type Panel = 'pause' | 'help' | 'settings'
-type Score = { seconds: number; stars: number; hits: number; misses: number; combos: number }
-type Save = {
-  started: boolean
-  rescued: string[]
-  xp: number
-  ended: boolean
-  best: Record<string, Score>
-  music: number
-  effects: number
-  seenComboTip: boolean
-}
-type Result = { person: TownPerson; score: Score; notice: string; record: boolean; replay: boolean; trial: boolean }
-const saveKey = 'magoten-save-v1'
-const defaults = (): Save => ({ started:false,rescued:[],xp:0,ended:false,best:{},music:.32,effects:.65,seenComboTip:false })
-
-function load(): Save {
-  const clean = defaults()
-  try {
-    const value = JSON.parse(localStorage.getItem(saveKey) ?? 'null') as Partial<Save> | null
-    if(!value || typeof value!=='object') return clean
-    for(const key of ['music','effects'] as const) {
-      const volume=value[key]
-      if(typeof volume==='number' && Number.isFinite(volume)) clean[key]=Math.min(1,Math.max(0,volume))
-    }
-    if(value.started!==true) return clean
-    clean.started=true
-    clean.seenComboTip=value.seenComboTip===true
-    clean.rescued=people.filter(p=>Array.isArray(value.rescued)&&value.rescued.includes(p.id)).map(p=>p.id)
-    clean.xp=people.reduce((xp,p)=>xp+(clean.rescued.includes(p.id)?p.xp:0),0)
-    clean.ended=clean.rescued.length===people.length&&value.ended===true
-    for(const p of people) {
-      const score=value.best?.[p.id]
-      if(score && Number.isFinite(score.seconds) && score.seconds>=0 &&
-        Number.isInteger(score.stars) && score.stars>=1 && score.stars<=3 &&
-        Number.isInteger(score.hits) && score.hits>0 && Number.isInteger(score.misses) && score.misses>=0) {
-        const combos=Number.isInteger(score.combos)&&score.combos>=0&&score.combos<=score.hits?score.combos:0
-        clean.best[p.id]={...score,combos}
-      }
-    }
-  } catch {
-    return clean
-  }
-  return clean
-}
+type Panel = 'pause' | 'help' | 'settings' | 'journal'
+type Result = { person: TownPerson; score: Score; notice: string; record: boolean; mode: BattleMode }
 
 const audio=new Audio()
 let save=load()
 audio.setup(save)
-const persist=()=>{ try { localStorage.setItem(saveKey,JSON.stringify(save)) } catch { /* Play can continue in memory. */ } }
 const level=()=>levels.filter(l=>save.xp>=l.xp).length-1
+const allRescued=()=>save.rescued.length===people.length
 const distance=(a: Point,b: Point)=>Math.hypot(a.x-b.x,a.y-b.y)
 const narrow=matchMedia('(max-width: 640px)')
 const directTrial=new URLSearchParams(location.search).get('trial')==='grocer'
 const grocer=people.find(p=>p.id==='grocer')!
+const royal=people[people.length-1]
 let trialTipSeen=false
 
 let screen: Screen='title'
@@ -86,6 +47,7 @@ let battle: Battle | undefined
 let result: Result | undefined
 let battleStatus=''
 let activePointer: number | undefined
+let pressedAction: HTMLButtonElement | null=null
 let touchDirection={x:0,y:0}
 const keys=new Set<string>()
 
@@ -118,6 +80,7 @@ const button=(action: string, title: string, style='')=>`<button type="button" c
 const timeText=(s: number)=> Math.floor(s/60)+'分'+String(Math.floor(s%60)).padStart(2,'0')+'秒'
 const accuracy=(s: Score)=> Math.round(100*s.hits/(s.hits+s.misses))+'%'
 const stars=(n: number)=>'★'.repeat(n)+'☆'.repeat(3-n)
+const pointsText=(n: number)=>n.toLocaleString('ja-JP')
 
 function resetInput() {
   keys.clear()
@@ -153,7 +116,7 @@ function go(next: Screen) {
 
 function startTown() {
   save.started=true
-  persist()
+  persist(save)
   go('town')
 }
 
@@ -169,14 +132,17 @@ function startNew() {
 }
 
 function resume() {
-  const p=people.find(p=>!save.rescued.includes(p.id))
-  const last=people[people.length-1]
-  player=p ? p.id==='baker' ? {...world.start} : { x:p.at.x-52,y:p.at.y+26 }
-    : {x:last.at.x-44,y:last.at.y+25}
   gateOpening=save.rescued.includes('guard')?1:0
+  const p=people.find(p=>!save.rescued.includes(p.id))??royal
+  const nearby=[
+    {x:p.at.x-52,y:p.at.y+26},
+    {x:p.at.x,y:p.at.y+48},
+    {x:p.at.x+45,y:p.at.y+25},
+  ]
+  player=p.id==='baker'?{...world.start}:nearby.find(at=>allowed(at.x,at.y))??{...world.start}
   follower=undefined
   protectedPerson=''
-  if(save.rescued.length===people.length && !save.ended) {
+  if(allRescued() && !save.ended) {
     ending=0
     go('ending')
   } else go('town')
@@ -211,7 +177,7 @@ function townUi() {
   }
   const ready=people.find(p=>!save.rescued.includes(p.id))
   const objective=ready
-    ? `${ready.district}の${ready.name}を助けよう`
+    ? `${ready.district} · ${ready.name}を助けよう`
     : '村人と話すと再チャレンジできます'
   const dock=`<div class="town-dock">
     <div class="dpad" aria-label="移動">
@@ -235,7 +201,14 @@ function townUi() {
 
 function resultUi() {
   if(!result) return ''
-  const {score,notice,person,record,replay,trial}=result
+  const {score,notice,person,record,mode}=result
+  if(mode==='challenge') return `<div class="scene-shade"><section class="result-card" aria-label="スコアアタック結果">
+    <div class="speaker">背中の勇者モード</div><h2>時間終了！</h2>
+    <div class="challenge-total">${pointsText(score.points)} <small>点</small></div>
+    <p>最大コンボ ${score.chain}　ノミ退治 ${score.defeated}匹</p>
+    <p class="level-up">${record?'自己ベスト更新！':`自己ベスト ${pointsText(save.challenge?.points??0)}点`}</p>
+    ${button('challenge','もう一度 挑戦','primary')}${button('title','タイトルへ','quiet')}
+  </section></div>`
   const canCombo=person.itches.some(i=>i.hidden)||person.fleas.some(f=>f.hideAt)
   const tip=canCombo&&!score.combos?'次は 飛び出したノミの着地をねらおう！'
     : score.stars===3?'お見事！ すばやく正確に救出できました。'
@@ -247,13 +220,14 @@ function resultUi() {
     <div class="stars" aria-label="星 ${score.stars}">${stars(score.stars)}</div>
     <div class="result-stats"><div><span>タイム</span><strong>${timeText(score.seconds)}</strong></div>
     <div><span>たたいた精度</span><strong>${accuracy(score)}</strong></div></div>
+    <p class="score-line"><strong>${pointsText(score.points)}点</strong>　最大コンボ ${score.chain}　退治 ${score.defeated}匹</p>
     ${canCombo?`<p class="combo-result">かき出しコンボ <strong>${score.combos}回</strong></p>`:''}
     ${notice?`<p class="level-up">Lv ${level()+1} · ${notice}</p>`:''}
-    ${record&&replay?'<p class="level-up">自己ベスト更新！</p>':''}
-    ${!trial&&!replay&&person.id==='grocer'?'<p class="rescue-note">八百屋「ノミの魔族、お城にまで入りこんだらしいよ。」</p>':''}
+    ${record&&mode==='replay'?'<p class="level-up">自己ベスト更新！</p>':''}
+    ${mode==='story'&&person.id==='grocer'?'<p class="rescue-note">八百屋「ノミの魔族、お城にまで入りこんだらしいよ。」</p>':''}
     <p class="tip">${tip}</p>
-    ${trial?button('trial','もう一度 試す','primary')+button('title','タイトルへ','quiet')
-      :button('result-next',save.rescued.length===people.length&&!save.ended?'街のみんなに会う':'街へもどる','primary')}
+    ${mode==='trial'?button('trial','もう一度 試す','primary')+button('title','タイトルへ','quiet')
+      :button('result-next',allRescued()&&!save.ended?'王様の表彰へ':'街へもどる','primary')}
   </section></div>`
 }
 
@@ -263,13 +237,33 @@ function summaryUi() {
     <p>助けた人 <strong>${save.rescued.length} / ${people.length}</strong> <span class="summary-lv">Lv ${level()+1}</span></p>
     <ul class="summary-list">${people.map(p=>{const s=save.best[p.id];return s?`<li><strong>${p.name}</strong><span>${stars(s.stars)}</span><span>${timeText(s.seconds)}</span></li>`:''}).join('')}</ul>
     <p class="staff-credit"><strong>スタッフクレジット</strong><br>企画・制作　果糖</p>
+    <p class="level-up">背中の勇者モード 解放！</p>
+    ${button('challenge','60秒スコアアタック','primary')}
     ${button('back-town','街へもどる','primary')}
     ${button('title','タイトルへ','quiet')}
   </section></div>`
 }
 
+function journalUi() {
+  const rescued=people.filter(p=>save.rescued.includes(p.id))
+  return `<p>救出 ${rescued.length} / ${people.length}　ノミ討伐 ${save.defeated}匹</p>
+    ${save.challenge?`<p class="combo-result">背中の勇者モード　最高 ${pointsText(save.challenge.points)}点</p>`:''}
+    <ul class="journal-list">${rescued.map(p=>{
+      const score=save.best[p.id]
+      const records=save.records[p.id]
+      return `<li><strong>${p.name}</strong><span class="journal-stars">${score?stars(score.stars):''}</span>
+        <p class="speaker">${p.district}</p>
+        <p>${p.rescued}</p>
+        ${records?`<p class="journal-stats">最高 ${records.points?pointsText(records.points)+'点':'—'}　最速 ${timeText(records.fastest)}<br>
+          最大コンボ ${records.chain||'—'}　退治 ${records.defeated}匹</p>`:''}</li>`
+    }).join('')}</ul>
+    ${!rescued.length?'<p>救出した人が、ここにのるよ。</p>':''}
+    ${button('close','もどる','primary')}`
+}
+
 function render() {
   game.dataset.screen=screen
+  game.dataset.powered=String(screen==='battle'&&battle?.canUseFever===true)
   battleUi.hidden=screen!=='battle'
   battleStatus=''
   switch(screen) {
@@ -279,8 +273,9 @@ function render() {
         <div class="title-actions">
           ${directTrial?button('trial','八百屋でコンボを試す','primary')+button('story-title','本編のタイトルへ','quiet')
             :`${save.started?button('resume','つづきから','primary'):''}
+              ${allRescued()?button('challenge','背中の勇者モード','primary'):''}
               ${button('start','はじめる',save.started?'':'primary')}
-              <div class="sub-actions">${button('help','あそびかた','quiet')}${button('settings','せってい','quiet')}</div>`}
+              <div class="sub-actions">${button('help','あそびかた','quiet')}${save.started?button('journal','図鑑・記録','quiet'):''}${button('settings','せってい','quiet')}</div>`}
         </div></div>`
       footer.textContent=''
       break
@@ -294,11 +289,15 @@ function render() {
       break
     case 'battle':
       overlay.innerHTML=''
-      battleUi.innerHTML=`<div class="battle-head"><span class="speaker">${battle!.person.district}</span><h2>${battle!.person.name}の背中</h2>
+      battleUi.innerHTML=`<div class="battle-head"><span class="speaker">${battle!.person.district}</span><h2>${battle!.challenge?battle!.person.name:battle!.person.name+'の背中'}</h2>
         ${button('pause','<span aria-hidden="true">Ⅱ</span> ポーズ','quiet pause-button')}</div>
+        ${battle!.challenge?'<div id="attack-clock" class="attack-clock"></div>':''}
         <div class="battle-counters"><div><span class="flea-key" aria-hidden="true">◆</span><span>ノミ</span><strong id="flea-count"></strong></div>
         <div><span class="itch-key" aria-hidden="true">≋</span><span>かゆみ</span><strong id="itch-count"></strong></div></div>
         ${battle!.person.clasps?.length?'<p id="clasp-count" class="clasp-count"></p>':''}
+        ${battle!.canUseFever?`<div class="fever-control"><button type="button" class="button primary fever-button" data-action="fever" disabled>
+          かきかきフィーバー <strong id="fever-state"></strong></button>
+          <meter id="fever-meter" aria-label="フィーバーゲージ" min="0" max="100" value="0"></meter></div>`:''}
         <p id="battle-hint" class="battle-hint" aria-live="polite"></p>`
       updateBattleUi()
       footer.textContent=''
@@ -333,14 +332,18 @@ function renderPanel() {
   } else if(panel==='pause') {
     title='ポーズ'
     content=button('close','つづける','primary')+button('help','あそびかた','quiet')+
-      button('settings','せってい','quiet')+button('title','タイトルへ','quiet')
+      button('journal','図鑑・記録','quiet')+button('settings','せってい','quiet')+button('title','タイトルへ','quiet')
   } else if(panel==='help') {
     title='あそびかた'
     content=`<dl class="instructions">
       <dt>街を歩く</dt><dd>矢印キー、WASD、画面の方向ボタンで移動。かゆい人に近づこう。</dd>
       <dt>ノミをたたく</dt><dd>着地して白い足元が出たら、ノミをタップかクリック。</dd>
       <dt>背中をかく</dt><dd>光るところを押したまま、左右か上下に短く往復。</dd>
+      <dt>かきかきフィーバー</dt><dd>Lv5から、ゲージが満ちたらボタンかFキーで発動。</dd>
       </dl>${button('close','もどる','primary')}`
+  } else if(panel==='journal') {
+    title='図鑑・記録'
+    content=journalUi()
   } else {
     title='せってい'
     content=`<label class="volume">音楽 <output id="music-value">${Math.round(save.music*100)}%</output>
@@ -355,7 +358,9 @@ function renderPanel() {
 
 function updateBattleUi() {
   if(!battle) return
-  const next=battle.remainingFleas+'|'+battle.remainingItches+'|'+battle.remainingClasps+'|'+battle.hint
+  const feverLeft=Math.ceil(battle.feverTime)
+  const next=[battle.remainingFleas,battle.remainingItches,battle.remainingClasps,battle.hint,
+    battle.feverReady,battle.charge,feverLeft,battle.challenge?battle.timeLeft:0,battle.points,battle.chain].join('|')
   if(next===battleStatus) return
   battleStatus=next
   document.querySelector('#flea-count')!.textContent=`あと ${battle.remainingFleas}匹`
@@ -365,45 +370,68 @@ function updateBattleUi() {
     clasps.hidden=!battle.remainingClasps
     clasps.textContent=`留め具 あと ${battle.remainingClasps}個`
   }
+  const fever=document.querySelector<HTMLButtonElement>('[data-action=fever]')
+  if(fever) {
+    fever.disabled=!battle.feverReady
+    fever.classList.toggle('fever-active',feverLeft>0)
+    document.querySelector<HTMLElement>('#fever-state')!.textContent=feverLeft?`${feverLeft}秒`:battle.feverReady?'発動！':`${battle.charge}%`
+    document.querySelector<HTMLMeterElement>('#fever-meter')!.value=battle.charge
+  }
+  const clock=document.querySelector<HTMLElement>('#attack-clock')
+  if(clock) clock.innerHTML=`<strong>残り ${battle.timeLeft}秒</strong><strong>${pointsText(battle.points)}点</strong>${battle.chain>1?`<span>${battle.chain}コンボ</span>`:''}`
   const hint=document.querySelector<HTMLElement>('#battle-hint')!
   hint.textContent=battle.hint
   hint.classList.toggle('combo-cue',battle.hint.startsWith('いま！')||battle.hint==='かき出しコンボ！')
 }
 
-function enterBattle(p: TownPerson,replay: boolean,trial=false) {
+function enterBattle(p: TownPerson,mode: BattleMode='story') {
+  const trial=mode==='trial'
   const showTip=p.id==='grocer' && !(trial?trialTipSeen:save.seenComboTip)
   if(showTip) {
     if(trial) trialTipSeen=true
-    else { save.seenComboTip=true; persist() }
+    else { save.seenComboTip=true; persist(save) }
   }
-  battle=new Battle(p,trial?1:level(),replay,trial,e=>audio.play(e),showTip)
+  battle=new Battle(p,trial?1:level(),mode,e=>audio.play(e),showTip)
   go('battle')
 }
 
 function finishBattle() {
   if(!battle) return
-  const {person,elapsed,hits,misses,combos,replay,trial}=battle
+  const {person,elapsed,hits,misses,combos,mode,points,maxChain:chain,defeated}=battle
+  if(mode==='challenge') {
+    const record=!save.challenge||points>save.challenge.points
+    const old=save.challenge
+    save.challenge={points:Math.max(points,old?.points??0),chain:Math.max(chain,old?.chain??0),defeated:Math.max(defeated,old?.defeated??0)}
+    save.defeated+=defeated
+    persist(save)
+    result={person,score:{seconds:elapsed,hits,misses,combos,stars:0,points,chain,defeated},notice:'',record,mode}
+    battle=undefined
+    go('result')
+    audio.play('win')
+    return
+  }
   const {targets}=person
   const ratedTime=elapsed-combo.timeBonus*combos
   const stars=ratedTime<=targets.gold&&misses<=1?3:ratedTime<=targets.silver&&misses<=targets.silverMisses?2:1
-  const score={seconds:elapsed,hits,misses,stars,combos}
+  const score={seconds:elapsed,hits,misses,stars,combos,points,chain,defeated}
   const old=save.best[person.id]
-  const rankChange=old ? stars-old.stars || combos-old.combos || old.misses-misses || old.seconds-elapsed : 1
-  const record=!trial&&rankChange>0
+  const rankChange=old ? stars-old.stars || combos-old.combos || old.misses-misses || points-old.points || old.seconds-elapsed : 1
+  const record=mode!=='trial'&&rankChange>0
   const before=level()
   if(record) save.best[person.id]=score
-  if(!trial) {
+  if(mode!=='trial') {
     if(!save.rescued.includes(person.id)) {
       save.rescued.push(person.id)
       save.xp+=person.xp
       if(person.id==='dog') follower={...person.at,facing:1,time:32}
     }
-    persist()
+    recordRescue(save,person.id,score)
+    persist(save)
     if(returnPosition) player={...returnPosition}
     protectedPerson=person.id
   }
   const notice=level()>before?levels[level()].notice:''
-  result={person,score,notice,record,replay,trial}
+  result={person,score,notice,record,mode}
   battle=undefined
   go('result')
   audio.play(notice?'level':'win')
@@ -426,12 +454,12 @@ function advance() {
   } else if(screen==='ending') {
     if(ending===finale.length-1) {
       save.ended=true
-      persist()
+      persist(save)
       go('summary')
     } else { ending++; sceneTime=0; render() }
   } else if(screen==='town'&&dialogue) {
     if(dialogue.kind==='entry') {
-      if(dialogue.line+1===dialogue.person.entry.length) enterBattle(dialogue.person,false)
+      if(dialogue.line+1===dialogue.person.entry.length) enterBattle(dialogue.person)
       else { dialogue.line++; render() }
     }
     else {
@@ -452,31 +480,38 @@ function action(id: string) {
       break
     case 'confirm-new': startNew(); break
     case 'resume': resume(); break
-    case 'trial': if(directTrial) enterBattle(grocer,false,true); break
+    case 'trial': if(directTrial) enterBattle(grocer,'trial'); break
+    case 'challenge': if(allRescued()) enterBattle(challengeArena,'challenge'); break
+    case 'fever': if(!panel) battle?.activateFever(); break
     case 'story-title': location.assign(location.pathname); break
     case 'skip':
       if(screen==='intro') startTown()
-      else if(screen==='town'&&dialogue?.kind==='entry') enterBattle(dialogue.person,false)
+      else if(screen==='town'&&dialogue?.kind==='entry') enterBattle(dialogue.person)
       else if(screen==='ending') { ending=finale.length-1; advance() }
       break
     case 'next': advance(); break
     case 'pause': resetInput(); panel='pause'; renderPanel(); break
     case 'help':
+    case 'journal':
     case 'settings': panelBack=panel; panel=id; resetInput(); renderPanel(); break
     case 'close': closePanel(); break
     case 'title': battle=undefined; go('title'); break
-    case 'replay': if(dialogue&&save.ended) enterBattle(dialogue.person,true); break
+    case 'replay': if(dialogue&&save.ended) enterBattle(dialogue.person,'replay'); break
     case 'result-next':
-      if(save.rescued.length===people.length&&!save.ended) { ending=0; go('ending') }
+      if(allRescued()&&!save.ended) { ending=0; go('ending') }
       else go('town')
       break
     case 'back-town': go('town'); break
   }
 }
 
+app.addEventListener('pointerdown',e=>{
+  pressedAction=(e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]')
+},true)
+
 app.addEventListener('click',e=>{
   const target=(e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]')
-  if(target?.dataset.action) action(target.dataset.action)
+  if(target?.dataset.action&&(e.detail===0||target===pressedAction)) action(target.dataset.action)
 })
 
 panels.addEventListener('input',e=>{
@@ -487,7 +522,7 @@ panels.addEventListener('input',e=>{
   audio.unlock()
   audio.setup(save)
   document.querySelector('#'+key+'-value')!.textContent=el.value+'%'
-  persist()
+  persist(save)
 })
 panels.addEventListener('change',e=>{
   if((e.target as HTMLInputElement).name==='effects') audio.play('hit')
@@ -495,6 +530,11 @@ panels.addEventListener('change',e=>{
 
 const movementCodes=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'])
 window.addEventListener('keydown',e=>{
+  if(e.code==='KeyF'&&!e.repeat&&screen==='battle'&&!panel&&battle?.feverReady) {
+    e.preventDefault()
+    action('fever')
+    return
+  }
   if(e.code==='Escape') {
     if(e.repeat) return
     if(panel||newConfirm) closePanel()
@@ -678,13 +718,16 @@ function frame(now: number) {
       if(battle.readyForResult) finishBattle()
     }
   }
-  audio.tick(screen==='battle'?'battle':screen==='title'||screen==='intro'?'title':'town',!!panel||newConfirm)
+  const theme=screen==='battle'?battle?.challenge?'challenge':battle?.person.id==='royal'?'boss':'battle'
+    :screen==='title'||screen==='intro'?'title':'town'
+  audio.tick(theme,!!panel||newConfirm)
   if(screen==='title'||(screen==='intro'&&intro===0)) {
     backdrop(c,canvas.width,canvas.height,elapsed,screen==='intro')
   } else if(screen==='battle') battle?.draw(c)
   else {
     const focus=screen==='intro' && !narrow.matches
-    const townPlayer=screen==='result'&&result?.trial?{x:grocer.at.x-39,y:grocer.at.y+20}:player
+    const townPlayer=screen==='result'&&result?.mode==='trial'?{x:grocer.at.x-39,y:grocer.at.y+20}
+      :screen==='result'&&result?.mode==='challenge'?{x:royal.at.x-40,y:royal.at.y+46}:player
     const cam=focus?camera(townPlayer,400,225):camera(townPlayer)
     if(focus) {
       c.save()

@@ -126,6 +126,9 @@ function house(c: Ink, b: (typeof buildings)[number], opening=0) {
     if(drop>4) box(c,'#8f775e',x+64,y+61+drop,52,3)
     box(c, '#a6464b', x+48, y+40, 12, 32)
     box(c, '#a6464b', x+w-60, y+40, 12, 32)
+    poly(c,'#59465e',[x+63,y+15,x+119,y+15,x+115,y+44,x+91,y+50,x+67,y+44])
+    poly(c,'#f0c77d',[x+77,y+31,x+75,y+22,x+84,y+26,x+91,y+18,x+98,y+26,x+107,y+22,x+105,y+32])
+    box(c,'#ffea9e',x+78,y+34,27,2)
     return
   }
   box(c, '#1c3434', x+7, y+11, w+3, h-5)
@@ -564,7 +567,7 @@ export function backdrop(c: Ink, w: number, h: number, clock: number, dark = fal
 
 export function battleBase(c: Ink, p: TownPerson) {
   if(p.id==='dog') { dogBack(c); return }
-  const royal=p.id==='royal'
+  const royal=p.id==='royal'||p.id==='challenge'
   const [base, hi, shade]=p.shirt
   box(c,'#253b3d',0,0,384,344)
   for(let x=0;x<384;x+=24) {
