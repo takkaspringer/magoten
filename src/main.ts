@@ -47,6 +47,7 @@ let battle: Battle | undefined
 let result: Result | undefined
 let battleStatus=''
 let activePointer: number | undefined
+let padPress: { element: HTMLElement; id: number } | undefined
 let pressedAction: HTMLButtonElement | null=null
 let touchDirection={x:0,y:0}
 const keys=new Set<string>()
@@ -85,10 +86,21 @@ const pointsText=(n: number)=>n.toLocaleString('ja-JP')
 function resetInput() {
   keys.clear()
   moving=false
-  touchDirection={x:0,y:0}
-  if(activePointer!==undefined && canvas.hasPointerCapture(activePointer)) canvas.releasePointerCapture(activePointer)
+  pressedAction=null
+  releasePad()
+  const id=activePointer
   activePointer=undefined
+  if(id!==undefined && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id)
   battle?.cancel()
+}
+
+function releasePad() {
+  const press=padPress
+  padPress=undefined
+  touchDirection={x:0,y:0}
+  if(!press) return
+  press.element.querySelector('.pressed')?.classList.remove('pressed')
+  if(press.element.hasPointerCapture(press.id)) press.element.releasePointerCapture(press.id)
 }
 
 function sizeCanvas() {
@@ -513,6 +525,13 @@ app.addEventListener('click',e=>{
   const target=(e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]')
   if(target?.dataset.action&&(e.detail===0||target===pressedAction)) action(target.dataset.action)
 })
+app.addEventListener('pointercancel',()=>{ pressedAction=null })
+app.addEventListener('contextmenu',e=>{
+  const gameplay=(e.target as HTMLElement).closest('.masthead, .stage, .battle-ui, .footer')
+  if(gameplay&&(!(e instanceof PointerEvent)||e.pointerType!=='mouse')) e.preventDefault()
+})
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) resetInput() })
+window.addEventListener('pagehide',resetInput)
 
 panels.addEventListener('input',e=>{
   const el=e.target as HTMLInputElement
@@ -557,13 +576,14 @@ window.addEventListener('blur',resetInput)
 const directions: Record<string,Point>={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}}
 overlay.addEventListener('pointerdown',e=>{
   const pad=(e.target as HTMLElement).closest<HTMLElement>('.dpad')
-  if(!pad||dialogue||panel) return
+  if(!pad||dialogue||panel||padPress||e.button!==0) return
+  padPress={element:pad,id:e.pointerId}
   pad.setPointerCapture(e.pointerId)
   moveOnPad(pad,e)
   e.preventDefault()
 })
 overlay.addEventListener('pointermove',e=>{
-  if(e.target instanceof HTMLElement&&e.target.matches('.dpad')&&e.target.hasPointerCapture(e.pointerId)) moveOnPad(e.target,e)
+  if(e.pointerId===padPress?.id) moveOnPad(padPress.element,e)
 })
 function moveOnPad(pad: HTMLElement,e: PointerEvent) {
   const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>('[data-dir]')
@@ -580,10 +600,7 @@ function moveOnPad(pad: HTMLElement,e: PointerEvent) {
   }
 }
 for(const name of ['pointerup','pointercancel','lostpointercapture']) {
-  overlay.addEventListener(name,()=>{
-    touchDirection={x:0,y:0}
-    overlay.querySelector('.pressed')?.classList.remove('pressed')
-  })
+  overlay.addEventListener(name,e=>{ if((e as PointerEvent).pointerId===padPress?.id) releasePad() })
 }
 
 function inCanvas(e: PointerEvent) {
@@ -606,8 +623,10 @@ canvas.addEventListener('pointermove',e=>{
 })
 canvas.addEventListener('pointerup',e=>{
   if(activePointer!==e.pointerId) return
-  battle?.end(inCanvas(e))
   activePointer=undefined
+  const p=inCanvas(e)
+  if(p.x<0||p.y<0||p.x>=canvas.width||p.y>=canvas.height) battle?.cancel()
+  else battle?.end(p)
 })
 for(const name of ['pointercancel','lostpointercapture']) {
   canvas.addEventListener(name,event=>{

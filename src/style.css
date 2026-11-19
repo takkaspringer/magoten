@@ -27,6 +27,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid #ffcb8a; outline-
   background: radial-gradient(ellipse at 50% 38%, #233e3d, transparent 70%), #101f23;
 }
 .game-shell { width: min(100%, 1032px); margin-inline: auto; }
+.game-shell, .game-shell * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .masthead { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 3px 10px; }
 .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 900; }
 .mark {
