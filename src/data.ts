@@ -223,6 +223,11 @@ export const levels = [
   {xp:300,radius:28,hit:6,speed:127,fever:false,notice:'移動速度アップ！'},
   {xp:400,radius:28,hit:6,speed:127,fever:true,notice:'必殺技 かきかきフィーバー解放！'},
   {xp:600,radius:31,hit:8,speed:136,fever:true,notice:'伝説の孫の手になった！'},
+  {xp:700,radius:33,hit:8,speed:136,fever:true,notice:'包帯屋のお礼で かける範囲アップ！'},
+  {xp:800,radius:33,hit:10,speed:136,fever:true,notice:'森の教えで たたく範囲アップ！'},
+  {xp:900,radius:33,hit:10,speed:144,fever:true,notice:'犬たちと走って 移動速度アップ！'},
+  {xp:1000,radius:35,hit:11,speed:144,fever:true,notice:'騎士の特訓で かく範囲アップ！'},
+  {xp:1100,radius:37,hit:12,speed:148,fever:true,notice:'ふたつの世界の 伝説の孫の手！'},
 ]
 
 export const challengeArena: TownPerson = {

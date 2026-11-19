@@ -218,6 +218,11 @@ meter::-moz-meter-bar { background: #d4b477; }
 .volume { display: grid; grid-template-columns: 1fr auto; text-align: left; gap: 3px; min-height: 60px; padding: 4px 0; }
 .volume input { width: 100%; grid-column: 1/-1; accent-color: #ffc985; min-height: 34px; }
 .volume output { color: #f8cf92; }
+.motion-setting { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; }
+.motion-setting input { width: 21px; height: 21px; accent-color: #ffc985; }
+.chapter-title { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: #1f183bc9; padding: 18px; }
+.chapter-title h2 { margin: 0; color: #ffe0a4; font-size: clamp(2.7rem,9vw,5rem); text-shadow: 3px 3px #814b76; }
+.chapter-title p { margin: 6px 0 18px; font-size: clamp(1.05rem,4vw,1.6rem); }
 @media (pointer: coarse), (max-width: 640px) {
   .town-dock { display: block; }
   .keyboard-hint { display: none; }

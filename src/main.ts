@@ -6,10 +6,13 @@ import { Battle } from './battle'
 import type { BattleMode } from './battle'
 import { challengeArena, combo, finale, gateBarrier, levels, obstacles, opening, people, world } from './data'
 import type { Point, TownPerson } from './data'
-import { defaults, load, persist, recordRescue } from './save'
+import { arrival, bridgeLock, demonObstacles, demonPeople, demonPortal, demonWorld, kingdomPortal, playableDemons, smallDoorLock } from './demon'
+import type { Realm } from './demon'
+import { demonTown, kingdomArrival } from './demon-art'
+import { cast, defaults, load, persist, recordRescue } from './save'
 import type { Score } from './save'
 
-type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary'
+type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary' | 'arrival' | 'demon-title'
 type Panel = 'pause' | 'help' | 'settings' | 'journal'
 type Result = { person: TownPerson; score: Score; notice: string; record: boolean; mode: BattleMode }
 
@@ -17,7 +20,8 @@ const audio=new Audio()
 let save=load()
 audio.setup(save)
 const level=()=>levels.filter(l=>save.xp>=l.xp).length-1
-const allRescued=()=>save.rescued.length===people.length
+const allRescued=()=>people.every(p=>save.rescued.includes(p.id))
+const subdued=()=>save.subdued||matchMedia('(prefers-reduced-motion: reduce)').matches
 const distance=(a: Point,b: Point)=>Math.hypot(a.x-b.x,a.y-b.y)
 const narrow=matchMedia('(max-width: 640px)')
 const directTrial=new URLSearchParams(location.search).get('trial')==='grocer'
@@ -32,9 +36,12 @@ let dialogue: { person: TownPerson; kind: 'entry' | 'talk' | 'locked'; line: num
 let newConfirm=false
 let intro=0
 let ending=0
+let arrivalLine=0
+let realm: Realm='kingdom'
 let player={...world.start}
 let gateOpening=save.rescued.includes('guard')?1:0
 let follower: (Point & { facing: number; time: number }) | undefined
+let companion: Point | undefined
 let facing=1
 let moving=false
 let elapsed=0
@@ -105,7 +112,7 @@ function releasePad() {
 
 function sizeCanvas() {
   const mobile=narrow.matches
-  const townScene=screen==='town'||screen==='ending'||screen==='result'||screen==='summary'
+  const townScene=screen==='town'||screen==='ending'||screen==='result'||screen==='summary'||screen==='arrival'||screen==='demon-title'
   if(screen==='battle') { canvas.width=384; canvas.height=344 }
   else if(townScene) { canvas.width=mobile?320:520; canvas.height=mobile?400:320 }
   else { canvas.width=mobile?320:640; canvas.height=mobile?460:360 }
@@ -133,7 +140,8 @@ function startTown() {
 }
 
 function startNew() {
-  save={...defaults(),music:save.music,effects:save.effects}
+  save={...defaults(),music:save.music,effects:save.effects,subdued:save.subdued}
+  realm='kingdom'
   player={...world.start}
   gateOpening=0
   follower=undefined
@@ -145,13 +153,21 @@ function startNew() {
 
 function resume() {
   gateOpening=save.rescued.includes('guard')?1:0
-  const p=people.find(p=>!save.rescued.includes(p.id))??royal
+  realm=save.location?.realm??'kingdom'
+  if(save.ended&&!save.demonGate) {
+    beginArrival()
+    return
+  }
+  const p=realm==='demon'?demonPeople.find(p=>!save.rescued.includes(p.id))??demonPeople[4]:people.find(p=>!save.rescued.includes(p.id))??royal
   const nearby=[
     {x:p.at.x-52,y:p.at.y+26},
     {x:p.at.x,y:p.at.y+48},
     {x:p.at.x+45,y:p.at.y+25},
   ]
-  player=p.id==='baker'?{...world.start}:nearby.find(at=>allowed(at.x,at.y))??{...world.start}
+  const previousPlace=save.location
+  const spawn=realm==='demon'?demonWorld.start:world.start
+  player=previousPlace&&allowed(previousPlace.x,previousPlace.y)?{x:previousPlace.x,y:previousPlace.y}
+    :p.id==='baker'?{...world.start}:nearby.find(at=>allowed(at.x,at.y))??{...spawn}
   follower=undefined
   protectedPerson=''
   if(allRescued() && !save.ended) {
@@ -160,11 +176,55 @@ function resume() {
   } else go('town')
 }
 
+function rememberPlace() {
+  if(!save.started||!allowed(player.x,player.y)) return
+  save.location={realm,x:player.x,y:player.y}
+}
+
+function beginArrival() {
+  realm='kingdom'
+  player={x:561,y:193}
+  follower=undefined
+  arrivalLine=0
+  go('arrival')
+}
+
+function openPortal() {
+  save.demonGate=true
+  rememberPlace()
+  persist(save)
+  go('town')
+}
+
+function savePositionOnLeave() {
+  if(screen==='town'||screen==='demon-title'||(screen==='battle'&&battle?.mode==='story')) {
+    rememberPlace()
+    persist(save)
+  }
+}
+
+function travel() {
+  const first=!save.enteredDemon
+  realm=realm==='kingdom'?'demon':'kingdom'
+  player=realm==='demon'?{...demonWorld.start}:{x:610,y:199}
+  follower=undefined
+  companion=undefined
+  protectedPerson=''
+  if(realm==='demon') save.enteredDemon=true
+  rememberPlace()
+  persist(save)
+  go(realm==='demon'&&first?'demon-title':'town')
+}
+
+const areaPeople=()=>realm==='kingdom'?people:playableDemons
+const activePortal=()=>realm==='kingdom'?save.demonGate?kingdomPortal:undefined:demonPortal
+const objectiveTarget=()=>areaPeople().find(p=>!save.rescued.includes(p.id))
+
 function hud() {
   const lv=level()
   const progress=lv===levels.length-1?100:Math.round(100*(save.xp-levels[lv].xp)/(levels[lv+1].xp-levels[lv].xp))
   return `<div class="town-hud">
-    <div class="hud-chip">助けた人 <strong>${save.rescued.length}<span> / ${people.length}</span></strong></div>
+    <div class="hud-chip">${realm==='demon'?'魔王編':'助けた人'} <strong>${(realm==='demon'?demonPeople:people).filter(p=>save.rescued.includes(p.id)).length}<span> / ${realm==='demon'?demonPeople.length:people.length}</span></strong></div>
     <div class="hud-chip xp" aria-label="Lv ${lv+1} 経験値 ${save.xp}"><strong>Lv ${lv+1}</strong><meter value="${progress}" min="0" max="100">${progress}%</meter></div>
     ${button('pause','<span aria-hidden="true">Ⅱ</span><span class="pause-word">ポーズ</span>','quiet pause-button')}
   </div>`
@@ -187,10 +247,10 @@ function townUi() {
     const line=dialogue.person.entry[dialogue.line]
     return bubble(line.speaker,line.text,'next',true)
   }
-  const ready=people.find(p=>!save.rescued.includes(p.id))
+  const ready=objectiveTarget()
   const objective=ready
     ? `${ready.district} · ${ready.name}を助けよう`
-    : '村人と話すと再チャレンジできます'
+    : realm==='kingdom'&&save.demonGate?'むらさきの門に 入ろう':'むらさきの門で 王国へ戻れるよ'
   const dock=`<div class="town-dock">
     <div class="dpad" aria-label="移動">
       <button type="button" data-dir="up" aria-label="上">▲</button>
@@ -204,7 +264,7 @@ function townUi() {
     if(dialogue.kind==='locked') talk=bubble(p.name,p.locked??'困っている人がいるよ！','next')
     else {
       talk=`<div class="talk-card"><span class="speaker">${p.name}</span><p>${p.rescued}</p>
-        <div class="talk-actions">${save.ended?button('replay','もう一度 チャレンジ','primary'):''}${button('next','とじる','quiet')}</div></div>`
+        <div class="talk-actions">${(realm==='demon'?save.demonEnded:save.ended)?button('replay','もう一度 チャレンジ','primary'):''}${button('next','とじる','quiet')}</div></div>`
     }
   }
   return hud()+`<div id="guide" class="guide" aria-hidden="true" hidden>➤</div>
@@ -246,7 +306,7 @@ function resultUi() {
 function summaryUi() {
   return `<div class="scene-shade"><section class="result-card summary" aria-label="冒険の結果">
     <div class="speaker">エンディング</div><h2>背中に、平和が戻った。</h2>
-    <p>助けた人 <strong>${save.rescued.length} / ${people.length}</strong> <span class="summary-lv">Lv ${level()+1}</span></p>
+    <p>助けた人 <strong>${people.filter(p=>save.rescued.includes(p.id)).length} / ${people.length}</strong> <span class="summary-lv">Lv ${level()+1}</span></p>
     <ul class="summary-list">${people.map(p=>{const s=save.best[p.id];return s?`<li><strong>${p.name}</strong><span>${stars(s.stars)}</span><span>${timeText(s.seconds)}</span></li>`:''}).join('')}</ul>
     <p class="staff-credit"><strong>スタッフクレジット</strong><br>企画・制作　果糖</p>
     <p class="level-up">背中の勇者モード 解放！</p>
@@ -257,8 +317,8 @@ function summaryUi() {
 }
 
 function journalUi() {
-  const rescued=people.filter(p=>save.rescued.includes(p.id))
-  return `<p>救出 ${rescued.length} / ${people.length}　ノミ討伐 ${save.defeated}匹</p>
+  const rescued=cast.filter(p=>save.rescued.includes(p.id))
+  return `<p>救出 ${rescued.length} / ${cast.length}　ノミ討伐 ${save.defeated}匹</p>
     ${save.challenge?`<p class="combo-result">背中の勇者モード　最高 ${pointsText(save.challenge.points)}点</p>`:''}
     <ul class="journal-list">${rescued.map(p=>{
       const score=save.best[p.id]
@@ -294,6 +354,17 @@ function render() {
     case 'intro':
       overlay.innerHTML=bubble(intro===3?'パン屋':'勇者',opening[intro],'next',true)
       footer.textContent='タップ、クリック、Enterで進む'
+      break
+    case 'arrival': {
+      const line=arrival[arrivalLine]
+      overlay.innerHTML=bubble(line.speaker,line.text,'next',true)
+      footer.textContent='その後の王国'
+      break
+    }
+    case 'demon-title':
+      overlay.innerHTML=`<div class="chapter-title"><div><h2>魔王編</h2><p>勇者、魔王の背中をまかされる</p>
+        ${button('next','つぎへ <span aria-hidden="true">▶</span>','primary')}</div></div>`
+      footer.textContent=''
       break
     case 'town':
       overlay.innerHTML=townUi()
@@ -361,7 +432,8 @@ function renderPanel() {
     content=`<label class="volume">音楽 <output id="music-value">${Math.round(save.music*100)}%</output>
       <input type="range" name="music" min="0" max="100" value="${Math.round(save.music*100)}"></label>
       <label class="volume">効果音 <output id="effects-value">${Math.round(save.effects*100)}%</output>
-      <input type="range" name="effects" min="0" max="100" value="${Math.round(save.effects*100)}"></label>${button('close','もどる','primary')}`
+      <input type="range" name="effects" min="0" max="100" value="${Math.round(save.effects*100)}"></label>
+      <label class="motion-setting"><input type="checkbox" name="subdued" ${save.subdued?'checked':''}>演出ひかえめ</label>${button('close','もどる','primary')}`
   }
   panels.innerHTML=`<div class="modal"><section class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title">
     <h2 id="panel-title">${title}</h2>${content}</section></div>`
@@ -403,7 +475,7 @@ function enterBattle(p: TownPerson,mode: BattleMode='story') {
     if(trial) trialTipSeen=true
     else { save.seenComboTip=true; persist(save) }
   }
-  battle=new Battle(p,trial?1:level(),mode,e=>audio.play(e),showTip)
+  battle=new Battle(p,trial?1:level(),mode,e=>audio.play(e),showTip,subdued)
   go('battle')
 }
 
@@ -438,9 +510,10 @@ function finishBattle() {
       if(person.id==='dog') follower={...person.at,facing:1,time:32}
     }
     recordRescue(save,person.id,score)
-    persist(save)
     if(returnPosition) player={...returnPosition}
     protectedPerson=person.id
+    rememberPlace()
+    persist(save)
   }
   const notice=level()>before?levels[level()].notice:''
   result={person,score,notice,record,mode}
@@ -463,6 +536,11 @@ function advance() {
   if(screen==='intro') {
     if(intro===opening.length-1) startTown()
     else { intro++; sceneTime=0; render() }
+  } else if(screen==='arrival') {
+    if(arrivalLine+1===arrival.length) openPortal()
+    else { arrivalLine++; sceneTime=0; render() }
+  } else if(screen==='demon-title') {
+    go('town')
   } else if(screen==='ending') {
     if(ending===finale.length-1) {
       save.ended=true
@@ -498,6 +576,7 @@ function action(id: string) {
     case 'story-title': location.assign(location.pathname); break
     case 'skip':
       if(screen==='intro') startTown()
+      else if(screen==='arrival') openPortal()
       else if(screen==='town'&&dialogue?.kind==='entry') enterBattle(dialogue.person)
       else if(screen==='ending') { ending=finale.length-1; advance() }
       break
@@ -507,13 +586,21 @@ function action(id: string) {
     case 'journal':
     case 'settings': panelBack=panel; panel=id; resetInput(); renderPanel(); break
     case 'close': closePanel(); break
-    case 'title': battle=undefined; go('title'); break
-    case 'replay': if(dialogue&&save.ended) enterBattle(dialogue.person,'replay'); break
+    case 'title':
+      if(screen==='town'||(screen==='battle'&&battle?.mode!=='trial'&&battle?.mode!=='challenge')) {
+        rememberPlace()
+        persist(save)
+      }
+      battle=undefined; go('title'); break
+    case 'replay': if(dialogue&&(realm==='demon'?save.demonEnded:save.ended)) enterBattle(dialogue.person,'replay'); break
     case 'result-next':
       if(allRescued()&&!save.ended) { ending=0; go('ending') }
       else go('town')
       break
-    case 'back-town': go('town'); break
+    case 'back-town':
+      if(save.ended&&!save.demonGate) beginArrival()
+      else go('town')
+      break
   }
 }
 
@@ -530,8 +617,8 @@ app.addEventListener('contextmenu',e=>{
   const gameplay=(e.target as HTMLElement).closest('.masthead, .stage, .battle-ui, .footer')
   if(gameplay&&(!(e instanceof PointerEvent)||e.pointerType!=='mouse')) e.preventDefault()
 })
-document.addEventListener('visibilitychange',()=>{ if(document.hidden) resetInput() })
-window.addEventListener('pagehide',resetInput)
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) { savePositionOnLeave(); resetInput() } })
+window.addEventListener('pagehide',()=>{ savePositionOnLeave(); resetInput() })
 
 panels.addEventListener('input',e=>{
   const el=e.target as HTMLInputElement
@@ -544,7 +631,12 @@ panels.addEventListener('input',e=>{
   persist(save)
 })
 panels.addEventListener('change',e=>{
-  if((e.target as HTMLInputElement).name==='effects') audio.play('hit')
+  const input=e.target as HTMLInputElement
+  if(input.name==='effects') audio.play('hit')
+  if(input.name==='subdued') {
+    save.subdued=input.checked
+    persist(save)
+  }
 })
 
 const movementCodes=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'])
@@ -561,7 +653,7 @@ window.addEventListener('keydown',e=>{
     return
   }
   if(e.code==='Enter' && !e.repeat && !panel&&!newConfirm &&
-    !(e.target instanceof HTMLButtonElement) && (screen==='intro'||screen==='ending'||dialogue)) {
+    !(e.target instanceof HTMLButtonElement) && (screen==='intro'||screen==='ending'||screen==='arrival'||screen==='demon-title'||dialogue)) {
     e.preventDefault()
     action('next')
   }
@@ -636,10 +728,11 @@ for(const name of ['pointercancel','lostpointercapture']) {
   })
 }
 
-function camera(p: Point, w=canvas.width, h=canvas.height): Camera {
+function camera(p: Point, w=canvas.width, h=canvas.height, inRealm=realm): Camera {
+  const area=inRealm==='demon'?demonWorld:world
   return {
-    x:Math.round(Math.max(0,Math.min(world.w-w,p.x-w/2))),
-    y:Math.round(Math.max(0,Math.min(world.h-h,p.y-h*.53))),
+    x:Math.round(Math.max(0,Math.min(area.w-w,p.x-w/2))),
+    y:Math.round(Math.max(0,Math.min(area.h-h,p.y-h*.53))),
     w,h,
   }
 }
@@ -647,6 +740,9 @@ function camera(p: Point, w=canvas.width, h=canvas.height): Camera {
 function allowed(x: number,y: number) {
   const r=7
   const overlaps=(o: typeof gateBarrier)=>x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h
+  if(realm==='demon') return x>=22&&x<=demonWorld.w-22&&y>=26&&y<=demonWorld.h-23&&
+    (save.rescued.includes('maki')||!overlaps(bridgeLock))&&(save.rescued.includes('knight')||!overlaps(smallDoorLock))&&
+    !demonObstacles.some(overlaps)
   return x>=22&&x<=world.w-22&&y>=26&&y<=world.h-23&&
     (gateOpening>=.96||!overlaps(gateBarrier))&&!obstacles.some(overlaps)
 }
@@ -664,7 +760,10 @@ function moveTown(dt: number) {
   if(vx&&allowed(player.x+vx,player.y)) { player.x+=vx; moving=true; facing=Math.sign(x) }
   if(vy&&allowed(player.x,player.y+vy)) { player.y+=vy; moving=true }
   if(moving&&elapsed-lastStep>.27) { lastStep=elapsed; audio.play('step') }
-  for(const p of people) {
+  const portal=activePortal()
+  if(portal&&distance(player,portal)<22) { travel(); return }
+  const residents=areaPeople()
+  for(const p of residents) {
     if(p.id==='dog'&&follower) continue
     const d=distance(player,p.at)
     if(p.id===protectedPerson) {
@@ -672,18 +771,32 @@ function moveTown(dt: number) {
       continue
     }
     if(d>=23) continue
-    const index=people.indexOf(p)
-    const kind=save.rescued.includes(p.id)?'talk':people.slice(0,index).some(s=>!save.rescued.includes(s.id))?'locked':'entry'
+    const index=residents.indexOf(p)
+    const kind=save.rescued.includes(p.id)?'talk':residents.slice(0,index).some(s=>!save.rescued.includes(s.id))?'locked':'entry'
     returnPosition=from
     protectedPerson=p.id
     dialogue={person:p,kind,line:0}
     resetInput()
+    if(kind==='entry') { rememberPlace(); persist(save) }
     render()
     break
   }
 }
 
 function followPlayer(dt: number) {
+  if(realm==='demon') {
+    companion ??= {x:player.x-31,y:player.y+17}
+    const x=player.x-companion.x,y=player.y-companion.y
+    const gap=Math.hypot(x,y)
+    if(gap>33) {
+      const pace=Math.min(gap-30,157*dt)
+      const vx=x*pace/gap,vy=y*pace/gap
+      if(allowed(companion.x+vx,companion.y)) companion.x+=vx
+      if(allowed(companion.x,companion.y+vy)) companion.y+=vy
+      if(gap>118) companion={x:player.x-26*facing,y:player.y+16}
+    }
+    return
+  }
   if(!follower) return
   follower.time-=dt
   if(follower.time<=0) { follower=undefined; return }
@@ -703,12 +816,12 @@ function followPlayer(dt: number) {
 
 function updateGuide(cam: Camera) {
   const guide=document.querySelector<HTMLElement>('#guide')
-  const target=people.find(p=>!save.rescued.includes(p.id))
+  const target=objectiveTarget()?.at??activePortal()
   if(!guide||!target||dialogue) {
     if(guide) guide.hidden=true
     return
   }
-  const dx=target.at.x-cam.x,dy=target.at.y-cam.y-20
+  const dx=target.x-cam.x,dy=target.y-cam.y-20
   const visible=dx>30&&dx<cam.w-30&&dy>56&&dy<cam.h-55
   guide.hidden=visible
   if(visible) return
@@ -747,14 +860,23 @@ function frame(now: number) {
     const focus=screen==='intro' && !narrow.matches
     const townPlayer=screen==='result'&&result?.mode==='trial'?{x:grocer.at.x-39,y:grocer.at.y+20}
       :screen==='result'&&result?.mode==='challenge'?{x:royal.at.x-40,y:royal.at.y+46}:player
-    const cam=focus?camera(townPlayer,400,225):camera(townPlayer)
+    const drawRealm=screen==='result'&&(result?.mode==='trial'||result?.mode==='challenge')?'kingdom':realm
+    const cam=focus?camera(townPlayer,400,225,drawRealm):camera(townPlayer,canvas.width,canvas.height,drawRealm)
     if(focus) {
       c.save()
       c.scale(canvas.width/cam.w,canvas.height/cam.h)
     }
-    town(c,cam,townPlayer,people,save.rescued,elapsed,moving,facing,{
-      gateOpening,follower,legendary:level()===5,proud:screen==='ending'||screen==='summary'||(screen==='intro'&&intro===2),
-    })
+    if(drawRealm==='demon') demonTown(c,cam,townPlayer,save.rescued,elapsed,moving,facing,companion,subdued())
+    else {
+      const shake=screen==='arrival'&&arrivalLine===0&&sceneTime<.55&&!subdued()?Math.round(Math.sin(sceneTime*56)*2):0
+      c.save()
+      c.translate(shake,0)
+      town(c,cam,townPlayer,people,save.rescued,elapsed,moving,facing,{
+        gateOpening,follower,legendary:level()>=5,proud:screen==='ending'||screen==='summary'||(screen==='intro'&&intro===2),
+      })
+      if(screen==='arrival'||save.demonGate) kingdomArrival(c,cam,screen==='arrival'?arrivalLine:-1,screen==='arrival'?sceneTime:elapsed,subdued())
+      c.restore()
+    }
     if(screen==='intro'&&intro===2) {
       hero(c,player.x-cam.x,player.y-cam.y,0,1,2,true)
     }

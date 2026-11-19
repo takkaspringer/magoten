@@ -1,6 +1,9 @@
 import { battleBase, box, dogTail, fleaArt, label, poly, toolArt } from './art'
 import { captain, challengeLimit, combo, feverDuration, levels, scout } from './data'
 import type { ClaspSpec, FleaSpec, ItchSpec, Point, TownPerson } from './data'
+import { demonPeople } from './demon'
+import type { Cover, DemonPerson } from './demon'
+import { demonBack, victoryArt } from './demon-art'
 
 type Phase = 'warning' | 'jump' | 'feint' | 'land' | 'retreat' | 'hidden' | 'emerge' | 'gone'
 type Flea = {
@@ -22,6 +25,7 @@ type Gesture = {
   start: Point
   last: Point
   itch?: Itch
+  cover?: Cover & { opened: boolean }
   axis?: Point
   extent: number
   distance: number
@@ -33,7 +37,7 @@ type Burst = Point & {
   type: 'hit' | 'scratch' | 'miss' | 'combo' | 'escape' | 'pop' | 'retreat'
   quietText?: boolean
 }
-export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo' | 'fever'
+export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo' | 'fever' | 'peel'
 export type BattleMode = 'story' | 'replay' | 'trial' | 'challenge'
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x-b.x,a.y-b.y)
@@ -66,14 +70,18 @@ export class Battle {
   private fleas: Flea[]
   private itches: Itch[]
   private clasps: (ClaspSpec & { opened: boolean })[]
+  private covers: (Cover & { opened: boolean })[]
+  private demon?: DemonPerson
   private base?: HTMLCanvasElement
   private level: (typeof levels)[number]
 
   constructor(public person: TownPerson, level: number, public mode: BattleMode,
-    private sound: (event: BattleEvent) => void, private showComboTip: boolean) {
+    private sound: (event: BattleEvent) => void, private showComboTip: boolean, private reduced: ()=>boolean) {
     this.level = levels[level]
     this.itches = person.itches.map(p=>({...p,progress:0}))
     this.clasps = (person.clasps ?? []).map(clasp=>({...clasp,opened:false}))
+    this.demon=demonPeople.find(p=>p.id===person.id)
+    this.covers=(this.demon?.covers??[]).map(cover=>({...cover,opened:false}))
     this.fleas = person.fleas.map(spec=>this.makeFlea(spec))
     if(person.id==='royal') this.announce('ノミ魔王が あらわれた！',1.65,2)
     if(this.challenge) this.spawnWave()
@@ -90,6 +98,7 @@ export class Battle {
   get remainingFleas() { return this.fleas.filter(f=>f.phase!=='gone').length }
   get remainingItches() { return this.itches.filter(i=>i.progress<3).length }
   get remainingClasps() { return this.clasps.filter(c=>!c.opened).length }
+  get remainingCovers() { return this.covers.filter(c=>!c.opened).length }
   get challenge() { return this.mode==='challenge' }
   get timeLeft() { return Math.ceil(Math.max(0,challengeLimit-this.elapsed)) }
   get canUseFever() { return this.level.fever }
@@ -97,11 +106,11 @@ export class Battle {
   get chain() { return this.elapsed-this.lastAction<=4.8?this.streak:0 }
   get done() {
     if(this.challenge) return this.elapsed>=challengeLimit
-    return this.remainingFleas===0 && this.remainingItches===0 && this.remainingClasps===0
+    return this.remainingFleas===0 && this.remainingItches===0 && this.remainingClasps===0 && this.remainingCovers===0
   }
-  get readyForResult() { return this.finishTime>=1.06 && !this.message }
+  get readyForResult() { return this.finishTime>=(this.demon?1.85:1.06) && !this.message }
   private get dogMotion() { return this.person.id==='dog'?this.elapsed%5:0 }
-  private get dogShake() { return this.dogMotion>=3.85?Math.round(Math.sin(this.elapsed*42)*6):0 }
+  private get dogShake() { return !this.reduced()&&this.dogMotion>=3.85?Math.round(Math.sin(this.elapsed*42)*6):0 }
 
   get hint() {
     if(this.challenge&&this.done) return '時間切れ！'
@@ -110,6 +119,7 @@ export class Battle {
     if (this.person.id==='baker') return this.remainingFleas ? 'ノミは 着地したらタップ！' : '光るところを 左右か上下にこすれ！'
     if(this.fleas.some(f=>f.phase==='land'&&(f.comboReady || (f.spec.hideAt&&f.emerged)))) return 'いま！ 輪のノミをたたけ！'
     if(this.fleas.some(f=>f.phase==='hidden')) return '震えるかゆみをこすって 追い出せ！'
+    if(this.remainingCovers) return 'ひらひらの端を 矢印のほうへスワイプ！'
     if(this.remainingClasps) return '金色の留め具をタップして開けよう！'
     if(this.dogMotion>=3.85) return 'ブルブル中！ 止まるとかきやすいよ'
     if(this.dogMotion>=3.15) return '耳が動いた！ もうすぐブルブル'
@@ -241,7 +251,8 @@ export class Battle {
     const at={x:p.x-this.dogShake,y:p.y}
     const itch=this.itches.filter(i=>i.progress<3 && distance(i,at)<=this.level.radius)
       .sort((a,b)=>distance(a,p)-distance(b,p))[0]
-    this.gesture={start:p,last:p,itch,extent:0,distance:0,drag:false,started:this.elapsed}
+    const cover=this.covers.find(s=>!s.opened&&Math.abs(s.x-at.x)<35&&Math.abs(s.y-at.y)<23)
+    this.gesture={start:p,last:p,itch,cover,extent:0,distance:0,drag:false,started:this.elapsed}
     this.tool=p
   }
 
@@ -253,6 +264,17 @@ export class Battle {
     g.distance+=distance(g.last,p)
     g.last=p
     if(distance(g.start,p)>7 || g.distance>12) g.drag=true
+    if(g.cover) {
+      if(!g.cover.opened&&(p.x-g.start.x)*g.cover.direction>=22&&Math.abs(p.y-g.start.y)<30) {
+        g.cover.opened=true
+        this.itches.push({...g.cover.itch,progress:0})
+        this.addAction(80,0)
+        this.bursts.push({x:g.cover.x,y:g.cover.y,age:0,type:'pop'})
+        this.announce('ぺりっ！ 光るところをこすろう',1.25,1)
+        this.sound('peel')
+      }
+      return
+    }
     const itch=g.itch
     if(!g.drag || !itch || itch.progress>=3) return
     if(distance(itch,{x:p.x-this.dogShake,y:p.y})>this.level.radius+9) {
@@ -359,7 +381,7 @@ export class Battle {
       this.reveal(clasp,this.makeFlea(clasp.flea),false)
       this.announce('カチッ！ ノミが飛び出した！',1.25,3)
       this.sound('pop')
-    } else if(!g.itch && this.remainingFleas) {
+    } else if(!g.itch && !g.cover && this.remainingFleas) {
       this.misses++
       this.streak=0
       this.bursts.push({...p,age:0,type:'miss'})
@@ -374,10 +396,13 @@ export class Battle {
       this.base=document.createElement('canvas')
       this.base.width=384
       this.base.height=344
-      battleBase(this.base.getContext('2d')!,this.person)
+      const art=this.base.getContext('2d')!
+      if(this.demon) demonBack(art,this.person)
+      else battleBase(art,this.person)
     }
-    const ease=this.reaction>0 ? Math.round(Math.sin(Math.min(1,this.reaction)*Math.PI)*3) : 0
-    const shake=this.dogShake
+    const reduced=this.reduced()
+    const ease=reduced?0:this.finishTime>.35?3:this.reaction>0?Math.round(Math.sin(Math.min(1,this.reaction)*Math.PI)*3):0
+    const shake=reduced?0:this.dogShake
     box(c,this.person.id==='dog'?'#374e44':'#253b3d',0,0,384,344)
     c.drawImage(this.base,shake,ease)
     if(this.person.id==='dog') {
@@ -391,7 +416,7 @@ export class Battle {
     }
     if(this.feverTime>0) {
       const palette=['#ffd16e','#f28b70','#fff0ab']
-      for(let i=0;i<20;i++) {
+      for(let i=0;i<(reduced?0:20);i++) {
         const phase=(feverDuration-this.feverTime)*1.4+i*.314
         const x=192+Math.cos(phase)*(169+Math.sin(phase*3)*12)
         const y=170+Math.sin(phase)*149
@@ -405,6 +430,9 @@ export class Battle {
     }
     c.save()
     c.translate(shake,0)
+    for(const cover of this.covers) {
+      if(!cover.opened) this.clothEdge(c,cover,reduced)
+    }
     for(const clasp of this.clasps) {
       const {x,y,opened}=clasp
       if(!opened) {
@@ -508,7 +536,7 @@ export class Battle {
     for(const b of this.bursts) {
       if(b.type==='hit'||b.type==='combo') fleaArt(c,b.x+44*b.age,b.y-102*b.age+66*b.age*b.age,false,Math.max(.3,1-b.age),b.age*12)
       if(b.type==='escape') fleaArt(c,b.x+415*b.age,b.y-193*b.age,true,Math.max(.5,1-b.age),b.age*8)
-      if(b.type!=='miss') {
+      if(b.type!=='miss'&&!reduced) {
         for(let k=0;k<9;k++) {
           const a=k*Math.PI*2/9
           const spread=6+b.age*45
@@ -534,6 +562,30 @@ export class Battle {
     } else {
       label(c,'✦',123,75,'#ffd98f',17)
       label(c,'✦',267,91,'#ffd98f',21)
+      if(this.demon&&this.finishTime>.15) victoryArt(c,this.person,this.finishTime,reduced)
+    }
+  }
+
+  private clothEdge(c: CanvasRenderingContext2D,cover: Cover,reduced: boolean) {
+    const {x,y,direction}=cover
+    const move=reduced?0:Math.round(Math.sin(this.elapsed*9)*4)
+    c.save()
+    c.translate(x,y)
+    c.scale(direction,1)
+    poly(c,'#4f4255',[-10,-14,49,-14,65,0,61,14,-10,15,-19,6])
+    poly(c,'#ddaf91',[-7,-12,49,-12,62,1,58,12,-8,12,-17,4])
+    box(c,'#f7dfae',-9,-9,54,4)
+    box(c,'#a67a77',7,7,47,3)
+    poly(c,'#fff2c1',[-24,-9+move,-8,-10,-7,12,-24,11+move,-29,3+move])
+    box(c,'#946875',-23,3+move,12,2)
+    poly(c,'#67495e',[-12,-1,8,-1,8,-6,20,1,8,8,8,3,-12,3])
+    c.restore()
+    if(!this.covers.some(c=>c.opened)&&cover===this.covers[0]) {
+      const demo=reduced?4:Math.floor(this.elapsed*22)%32-9
+      const px=x+direction*demo,py=y+34
+      poly(c,'#513953',[px-6,py+4,px-7,py-7,px-2,py-7,px-2,py-17,px+3,py-17,px+4,py-7,px+10,py-7,px+11,py+6])
+      box(c,'#ffe3aa',px-1,py-15,3,19)
+      box(c,'#ffe3aa',px+1,py-5,8,9)
     }
   }
 
