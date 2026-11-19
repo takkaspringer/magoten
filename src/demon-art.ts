@@ -155,8 +155,9 @@ function creature(c: Ink,p: TownPerson,x: number,y: number,t: number,well: boole
     for(let i=-1;i<=1;i++) {
       const xx=x+i*16
       const yy=headY+(well?2:Math.round(Math.sin(t*7+i)*3))
-      box(c,dark,xx-7,yy-5,14,16)
-      box(c,base,xx-5,yy-3,10,12)
+      const tilt=well?Math.round(Math.sin(t*5)*3):0
+      poly(c,dark,[xx-7+tilt,yy-5,xx+7+tilt,yy-5,xx+7,yy+11,xx-7,yy+11])
+      poly(c,base,[xx-5+tilt,yy-3,xx+5+tilt,yy-3,xx+5,yy+9,xx-5,yy+9])
       box(c,hi,xx-3,yy+3,8,5)
       box(c,'#f2d694',xx-3,yy,2,2)
       box(c,ink,xx+3,yy+4,3,2)
@@ -178,6 +179,9 @@ function creature(c: Ink,p: TownPerson,x: number,y: number,t: number,well: boole
       poly(c,'#8cc5a2',[x-18,headY-7,x-13,headY-19,x+12,headY-19,x+18,headY-7])
       box(c,'#d7e0ad',x-7,headY-17,5,4)
       box(c,'#d7e0ad',x+5,headY-13,4,3)
+    } else if(p.id==='envoy') {
+      poly(c,'#e1c095',[x-10,headY-8,x-18,headY-18,x-13,headY-20,x-5,headY-11])
+      poly(c,'#e1c095',[x+10,headY-8,x+18,headY-18,x+13,headY-20,x+5,headY-11])
     } else if(p.id==='luruka') {
       poly(c,'#f0dab1',[x-14,headY-8,x-19,headY-19,x-10,headY-14,x-7,headY-8])
       poly(c,'#f0dab1',[x+14,headY-8,x+19,headY-19,x+10,headY-14,x+7,headY-8])
@@ -190,7 +194,7 @@ function creature(c: Ink,p: TownPerson,x: number,y: number,t: number,well: boole
 }
 
 export function demonTown(c: Ink,cam: Camera,player: Point,saved: string[],clock: number,moving: boolean,facing: number,
-  companion?: Point,subdued=false) {
+  companion?: Point,subdued=false,ending?: {line: number; time: number}) {
   terrain ??= map()
   c.drawImage(terrain,cam.x,cam.y,cam.w,cam.h,0,0,cam.w,cam.h)
   c.save()
@@ -212,23 +216,36 @@ export function demonTown(c: Ink,cam: Camera,player: Point,saved: string[],clock
     box(c,'#ead0a0',smallDoorLock.x+8,smallDoorLock.y+11,smallDoorLock.w-16,2)
     sign(c,617,237,'こちら')
   } else {
-    box(c,'#54465f',smallDoorLock.x,smallDoorLock.y,smallDoorLock.w,smallDoorLock.h)
-    box(c,'#463b51',smallDoorLock.x,smallDoorLock.y+7,smallDoorLock.w,4)
+    box(c,'#382c46',smallDoorLock.x,smallDoorLock.y,smallDoorLock.w,smallDoorLock.h)
+    box(c,'#95777d',smallDoorLock.x,smallDoorLock.y,smallDoorLock.w,7)
   }
   const forestSaved=saved.includes('kasane')
   for(let i=0;i<22;i++) {
     const px=133+i*36,py=756-((i*39)%133)
-    const lights=forestSaved?(artTime*4+i)%12<6:seed(i,20)<28&&Math.sin(artTime+i)>.32
+    if(px<cam.x-26||px>cam.x+cam.w+26||py<cam.y||py>cam.y+cam.h+37) continue
+    const lights=forestSaved?(artTime*4+py/15)%12<6:seed(i,20)<28&&Math.sin(artTime+i)>.32
     mushroom(c,px,py,10+i%3*4,lights)
   }
   const actors=[
-    ...demonPeople.map(p=>({y:p.at.y,draw:()=>creature(c,p,p.at.x,p.at.y,artTime,saved.includes(p.id))})),
+    ...demonPeople.filter(p=>p.at.x>=cam.x-25&&p.at.x<=cam.x+cam.w+25&&p.at.y>=cam.y-12&&p.at.y<=cam.y+cam.h+64).map(p=>{
+      const step=p.id==='luruka'&&ending?(subdued||ending.line>0?28:Math.round(Math.min(1,ending.time/.8)*28)):0
+      const lean=p.id==='knight'&&!saved.includes('knight')&&!subdued?Math.round(Math.sin(clock*7)*3):0
+      return {y:p.at.y+step,draw:()=>creature(c,p,p.at.x+lean,p.at.y+step,artTime,saved.includes(p.id))}
+    }),
     {y:player.y,draw:()=>hero(c,player.x,player.y,moving?Math.floor(clock*9):0,facing)},
   ]
   if(companion) actors.push({y:companion.y,draw:()=>personArt(c,dog,companion.x,companion.y,Math.floor(artTime*11),true)})
   if(saved.includes('kerberos')) {
     const a=demonPeople[2].at
-    actors.push({y:a.y+2,draw:()=>personArt(c,dog,a.x+42+Math.round(Math.sin(artTime*5)*2),a.y+4,Math.floor(artTime*6),true)})
+    if(a.y>=cam.y-12&&a.y<=cam.y+cam.h+64) {
+      actors.push({y:a.y+2,draw:()=>{
+        c.save()
+        c.translate(a.x+42,a.y+4)
+        c.rotate(Math.sin(artTime*5)*.115)
+        personArt(c,dog,0,0,Math.floor(artTime*6),true)
+        c.restore()
+      }})
+    }
   }
   actors.sort((a,b)=>a.y-b.y).forEach(a=>a.draw())
   c.restore()
@@ -247,7 +264,7 @@ export function kingdomArrival(c: Ink,cam: Camera,line: number,time: number,subd
     const y=py+22+Math.round(Math.sin(slide*.12)*4)
     poly(c,'#eee1c7',[x-21,y-44,x-41,y-45,x-39,y-29,x-32,y-34,x-28,y-28,x-21,y-31])
     box(c,'#b18c75',x-22,y-45,3,39)
-    const messenger={...demonPeople[4],name:'使者',shirt:['#716184','#a5a0bf','#433552'] as TownPerson['shirt']}
+    const messenger={...demonPeople[4],id:'envoy',name:'使者',shirt:['#716184','#a5a0bf','#433552'] as TownPerson['shirt']}
     creature(c,messenger,x,y,t,true)
     if(line<3) box(c,'#6d6883',x-11,y-46,22,7)
     if(line>=3&&line<7) {
@@ -280,6 +297,12 @@ export function demonEndingArt(c: Ink,cam: Camera,line: number,time: number) {
     star(c,641,176,4,'#ffc488')
   }
   c.restore()
+}
+
+export function crownPop(c: Ink,cam: Camera,time: number) {
+  const t=Math.min(1,time*1.1)
+  const at=luruka.at
+  if(t<.88) emperorArt(c,at.x-cam.x+Math.round(t*33),at.y-cam.y-60-Math.sin(t*Math.PI)*23)
 }
 
 export function waitingScene(c: Ink,w: number,h: number,time: number) {
@@ -398,6 +421,21 @@ export function paw(c: Ink,x: number,y: number,color='#ffe3a1') {
   for(const [dx,dy] of [[-7,-3],[0,-7],[7,-3]]) box(c,color,x+dx-2,y+dy-2,5,5)
 }
 
+export function emperorArt(c: Ink,x: number,y: number) {
+  x=Math.round(x)
+  y=Math.round(y)
+  poly(c,'#29223f',[x-23,y+11,x-23,y-3,x-12,y-12,x+12,y-12,x+23,y-3,x+23,y+11,x+14,y+9,x+9,y+15,x-9,y+15,x-14,y+9])
+  poly(c,'#5d4785',[x-20,y+8,x-18,y-2,x-9,y-9,x+10,y-9,x+18,y-2,x+20,y+8,x+10,y+8,x+7,y+11,x-8,y+11,x-12,y+8])
+  poly(c,'#ab6b9a',[x-15,y+2,x-9,y-9,x+10,y-9,x+16,y+2,x+8,y+9,x-9,y+9])
+  poly(c,'#f3cd83',[x-14,y-7,x-16,y-18,x-7,y-15,x,y-25,x+7,y-15,x+16,y-18,x+14,y-7])
+  box(c,'#eb859b',x-3,y-16,6,6)
+  box(c,'#fff1ba',x-9,y-2,5,4)
+  box(c,'#fff1ba',x+4,y-2,5,4)
+  box(c,'#29223f',x-2,y+5,5,3)
+  star(c,x-23,y+4,4,'#e0a9b8')
+  star(c,x+23,y+4,4,'#e0a9b8')
+}
+
 export function victoryArt(c: Ink,p: TownPerson,t: number,subdued: boolean) {
   const kind=p.id
   const y=322-Math.min(1,t*.9)*20
@@ -408,8 +446,15 @@ export function victoryArt(c: Ink,p: TownPerson,t: number,subdued: boolean) {
       const py=165+Math.cos(phase)*(65+i*2)
       if(kind==='maki') box(c,i%2===0?'#ffe6b3':'#dbb896',x,py,9,2)
       else if(kind==='kerberos') {
-        if(i%5===0) paw(c,x,py)
-      } else star(c,Math.round(x),Math.round(py),i%4===0?5:2,kind==='kasane'?'#a6f0c9':'#ffc393')
+        if(i<3) {
+          const xx=138+i*54,swish=Math.round(Math.sin(t*11+i)*12)
+          poly(c,'#cf8993',[xx-6,294,xx+3,293,xx+10+swish,315,xx+4+swish,331,xx-3+swish,328,xx+2+swish,312])
+        }
+      } else if(kind==='knight'||kind==='luruka') {
+        const origin=i%2===0?53:331
+        const radius=11+(t-.63)*31
+        star(c,Math.round(origin+Math.cos(i*1.2)*radius),Math.round(151+Math.sin(i*1.2)*radius),i%4===0?5:2,'#ffc393')
+      } else star(c,Math.round(x),Math.round(py),i%4===0?5:2,'#a6f0c9')
     }
   }
   if(t>.45) {

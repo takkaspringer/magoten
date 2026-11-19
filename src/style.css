@@ -223,6 +223,13 @@ meter::-moz-meter-bar { background: #d4b477; }
 .chapter-title { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: #1f183bc9; padding: 18px; }
 .chapter-title h2 { margin: 0; color: #ffe0a4; font-size: clamp(2.7rem,9vw,5rem); text-shadow: 3px 3px #814b76; }
 .chapter-title p { margin: 6px 0 18px; font-size: clamp(1.05rem,4vw,1.6rem); }
+.demon-finale { position: absolute; inset: auto 3% 3%; padding: 10px; text-align: center; background: #282340e8; border: 1px solid #ba9f9c; }
+.demon-finale h2 { margin: 0; color: #ffe2a5; font-size: clamp(1.2rem,5vw,2rem); }
+.demon-finale p { margin: 4px 0 8px; }
+.demon-finale .button { margin: 2px 4px; }
+.act-info { display: grid; gap: 4px; color: #ffe0a3; padding: 7px; border: 1px solid #907789; background: #453a55; font-size: .9rem; }
+.act-info span { color: #e6c7a5; font-variant-numeric: tabular-nums; }
+.dog-check { position: absolute; top: 64px; left: 12px; }
 @media (pointer: coarse), (max-width: 640px) {
   .town-dock { display: block; }
   .keyboard-hint { display: none; }
@@ -248,6 +255,11 @@ meter::-moz-meter-bar { background: #d4b477; }
   .objective { right: 5px; bottom: 7px; font-size: .84rem; }
   .game[data-screen="battle"] { display: flex; flex-direction: column-reverse; width: min(100%,calc((100dvh - 203px) * 384 / 344)); }
   .game[data-screen="battle"][data-powered="true"] { width: min(100%,calc((100dvh - 266px) * 384 / 344)); }
+  .game[data-screen="battle"][data-acts="true"] { width: min(100%,calc((100dvh - 323px) * 384 / 344)); }
+  .game[data-acts="true"] .battle-ui { gap: 4px; }
+  .act-info { grid-template-columns: 1fr auto; align-items: start; padding: 5px 6px; }
+  .act-info span { white-space: nowrap; }
+  .dog-check { top: 53px; left: 7px; }
   .battle-ui { display: grid; justify-content: stretch; gap: 5px; padding: 6px 8px; border-left: 0; border-bottom: 1px solid #748981; }
   .battle-head { display: flex; align-items: center; gap: 5px; }
   .battle-head .speaker { display: none; }

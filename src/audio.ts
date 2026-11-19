@@ -5,6 +5,10 @@ const scores: Record<string, number[]> = {
   battle: [57,0,60,57,64,60,0,67,59,0,62,59,65,62,0,69],
   boss: [48,55,60,55,50,57,62,57,51,58,63,58,50,53,62,65],
   challenge: [62,66,69,74,64,67,71,76,66,69,73,78,69,71,74,81],
+  demonVillage: [64,0,67,71,69,0,67,64,62,0,65,69,67,0,64,62],
+  demonForest: [55,0,62,67,0,66,62,0,57,0,64,69,0,67,64,0],
+  demonRoad: [57,60,64,0,66,64,60,0,59,62,67,0,69,67,62,0],
+  demonCastle: [50,57,62,65,48,55,60,64,46,53,58,62,48,55,60,67],
   title: [60,0,64,67,69,0,67,64,62,0,65,69,67,0,64,62],
 }
 const effects: Record<Effect, number[]> = {
@@ -74,7 +78,7 @@ export class Audio {
     })
   }
 
-  tick(theme: string,paused: boolean) {
+  tick(theme: string,paused: boolean,fever=false) {
     if(!this.ctx||this.ctx.state!=='running'||!this.music||paused) return
     const now=this.ctx.currentTime
     const score=scores[theme]??scores.title
@@ -88,6 +92,7 @@ export class Audio {
     const start=Math.max(this.last,now+.01)
     const note=score[this.note%score.length]
     if(note && this.volumes.music>0) this.tone(note,start,.22,.30,'triangle',this.music)
+    if(fever&&note&&this.volumes.music>0) this.tone(note+12,start+.03,.13,.18,'triangle',this.music)
     if(this.note%4===0 && this.volumes.music>0) this.tone((note||60)-24,start,.3,.17,'triangle',this.music)
     this.note++
     this.last=start+(theme==='challenge'?.15:theme==='battle'||theme==='boss'?.185:.24)
