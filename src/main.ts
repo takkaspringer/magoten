@@ -185,12 +185,15 @@ function hud() {
   </div>`
 }
 
-function bubble(speaker: string, line: string, action: string, skip=false) {
-  return `<div class="dialogue">${skip?button('skip','スキップ','quiet skip'):''}
-    <button type="button" class="speech" data-action="${action}">
-      <span class="speaker">${speaker}</span><span class="line">${line}</span><span class="next" aria-label="次へ">▼</span>
-    </button>
-  </div>`
+function bubble(speaker: string, line: string, action: string, story=false) {
+  return `${story?button('skip','スキップ','quiet story-skip'):''}
+    <div class="dialogue">
+      ${story?button(action,'つぎへ <span aria-hidden="true">▶</span>','primary story-next'):''}
+      <button type="button" class="speech" data-action="${action}">
+        <span class="speaker">${speaker}</span><span class="line">${line}</span>
+        ${story?'':'<span class="next" aria-label="次へ">▼</span>'}
+      </button>
+    </div>`
 }
 
 function townUi() {

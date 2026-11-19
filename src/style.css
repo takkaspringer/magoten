@@ -94,7 +94,8 @@ canvas { width: 100%; height: auto; display: block; image-rendering: pixelated; 
 .footer { display: grid; justify-content: center; min-height: 30px; align-items: end; margin-top: 8px; color: #adcbbe; font-size: .85rem; text-align: center; }
 kbd { display: inline-block; min-width: 1.45em; padding: 0 2px; border: 1px solid #668278; color: #def0d7; font: 700 .8rem ui-monospace, monospace; text-align: center; }
 .dialogue { position: absolute; inset: auto clamp(10px,5%,48px) 4%; display: grid; justify-items: end; gap: 8px; }
-.dialogue .skip { min-height: 40px; }
+.story-skip { position: absolute; top: clamp(8px, 3%, 20px); right: clamp(10px, 5%, 48px); }
+.story-next { min-width: 124px; }
 .speech, .talk-card {
   position: relative;
   width: 100%;
@@ -107,6 +108,7 @@ kbd { display: inline-block; min-width: 1.45em; padding: 0 2px; border: 1px soli
   color: #49353a;
 }
 .speech { touch-action: manipulation; }
+.story-next + .speech { padding-right: 15px; }
 .speech .speaker, .talk-card .speaker { color: #8b4c48; }
 .speaker { display: block; font-size: .88rem; letter-spacing: .04em; color: var(--mint); font-weight: 900; }
 .line { display: block; margin-top: 5px; font-size: clamp(1.125rem, 2.6vw, 1.5rem); font-weight: 800; line-height: 1.45; }
