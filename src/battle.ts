@@ -2,12 +2,12 @@ import { battleBase, box, dogTail, fleaArt, label, poly, toolArt } from './art'
 import { captain, challengeLimit, combo, feverDuration, levels, scout } from './data'
 import type { ClaspSpec, FleaSpec, ItchSpec, Point, TownPerson } from './data'
 import { demonPeople } from './demon'
-import type { Cover, DemonPerson } from './demon'
-import { demonBack, victoryArt } from './demon-art'
+import type { Cover, DemonPerson, VeiledFlea } from './demon'
+import { demonBack, paw, victoryArt } from './demon-art'
 
 type Phase = 'warning' | 'jump' | 'feint' | 'land' | 'retreat' | 'hidden' | 'emerge' | 'gone'
 type Flea = {
-  spec: FleaSpec
+  spec: VeiledFlea
   phase: Phase
   time: number
   from: number
@@ -37,7 +37,7 @@ type Burst = Point & {
   type: 'hit' | 'scratch' | 'miss' | 'combo' | 'escape' | 'pop' | 'retreat'
   quietText?: boolean
 }
-export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo' | 'fever' | 'peel'
+export type BattleEvent = 'hit' | 'scratch' | 'miss' | 'retreat' | 'pop' | 'combo' | 'fever' | 'peel' | 'link' | 'dog'
 export type BattleMode = 'story' | 'replay' | 'trial' | 'challenge'
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x-b.x,a.y-b.y)
@@ -61,6 +61,11 @@ export class Battle {
   private streak = 0
   private wave = 0
   private nextWave = 0
+  private lastInput = 0
+  private hintShown = false
+  private companionHint?: Point & { until: number }
+  private linkCandidate?: Point & { until: number }
+  private linkTrail = 0
   private finishTime = 0
   private message?: { text: string; left: number; priority: number }
   private reaction = 0
@@ -82,15 +87,16 @@ export class Battle {
     this.clasps = (person.clasps ?? []).map(clasp=>({...clasp,opened:false}))
     this.demon=demonPeople.find(p=>p.id===person.id)
     this.covers=(this.demon?.covers??[]).map(cover=>({...cover,opened:false}))
-    this.fleas = person.fleas.map(spec=>this.makeFlea(spec))
+    this.fleas = (this.demon?.fleas??person.fleas).map(spec=>this.makeFlea(spec))
     if(person.id==='royal') this.announce('ノミ魔王が あらわれた！',1.65,2)
     if(this.challenge) this.spawnWave()
   }
 
-  private makeFlea(spec: FleaSpec): Flea {
+  private makeFlea(spec: VeiledFlea): Flea {
+    const warns=spec.kind!=='normal'||!!spec.veil||spec.emperor===true
     return {
-      spec, phase: spec.kind==='normal'?'land':'warning', time: spec.start ?? 0,
-      from: spec.kind==='normal'?0:spec.route.length-1, to:0, hop:0, emerged:false, comboReady:false, strikes:0,
+      spec, phase: warns?'warning':'land', time: spec.start ?? 0,
+      from: warns?spec.route.length-1:0, to:0, hop:0, emerged:false, comboReady:false, strikes:0,
       added: 0, nextAdd: spec.addAfter ?? Infinity,
     }
   }
@@ -120,6 +126,7 @@ export class Battle {
     if(this.fleas.some(f=>f.phase==='land'&&(f.comboReady || (f.spec.hideAt&&f.emerged)))) return 'いま！ 輪のノミをたたけ！'
     if(this.fleas.some(f=>f.phase==='hidden')) return '震えるかゆみをこすって 追い出せ！'
     if(this.remainingCovers) return 'ひらひらの端を 矢印のほうへスワイプ！'
+    if(this.fleas.some(f=>f.phase!=='gone'&&f.spec.veil==='leaf')) return 'はっぱが ゆれた先を 見よう！'
     if(this.remainingClasps) return '金色の留め具をタップして開けよう！'
     if(this.dogMotion>=3.85) return 'ブルブル中！ 止まるとかきやすいよ'
     if(this.dogMotion>=3.15) return '耳が動いた！ もうすぐブルブル'
@@ -171,6 +178,7 @@ export class Battle {
     this.bursts = this.bursts.filter(b=>b.age<1)
     this.bursts.forEach(b=>b.age+=dt)
     this.reaction=Math.max(0,this.reaction-dt)
+    this.linkTrail=Math.max(0,this.linkTrail-dt)
     if(this.message) {
       this.message.left-=dt
       if(this.message.left<=0) this.message=undefined
@@ -181,6 +189,7 @@ export class Battle {
     }
     this.elapsed=this.challenge?Math.min(challengeLimit,this.elapsed+dt):this.elapsed+dt
     this.feverTime=Math.max(0,this.feverTime-dt)
+    if(this.demon&&!this.hintShown&&!this.gesture&&this.elapsed-this.lastInput>=8) this.pointWithDog()
     if(this.challenge) {
       if(this.done) return
       if(this.elapsed>=this.nextWave || (!this.remainingFleas&&!this.remainingItches)) this.spawnWave()
@@ -236,6 +245,17 @@ export class Battle {
     }
   }
 
+  private pointWithDog() {
+    const flea=this.fleas.find(f=>f.phase!=='gone'&&f.phase!=='hidden')
+    const target=this.covers.find(c=>!c.opened)??this.clasps.find(c=>!c.opened)??
+      this.itches.find(i=>i.progress<3)??(flea?flea.spec.route[flea.to]:undefined)
+    if(!target) return
+    this.hintShown=true
+    this.companionHint={...target,until:this.elapsed+2.2}
+    this.announce('わん！ 肉球のそばを見て！',2.2,1)
+    this.sound('dog')
+  }
+
   private location(f: Flea) {
     const target=f.spec.route[f.to]
     const from=f.launchFrom ?? f.spec.route[f.from]
@@ -248,6 +268,7 @@ export class Battle {
 
   begin(p: Point) {
     if(this.done) return
+    this.lastInput=this.elapsed
     const at={x:p.x-this.dogShake,y:p.y}
     const itch=this.itches.filter(i=>i.progress<3 && distance(i,at)<=this.level.radius)
       .sort((a,b)=>distance(a,p)-distance(b,p))[0]
@@ -261,6 +282,7 @@ export class Battle {
     this.tool=p
     const g=this.gesture
     if(!g) return
+    this.lastInput=this.elapsed
     g.distance+=distance(g.last,p)
     g.last=p
     if(distance(g.start,p)>7 || g.distance>12) g.drag=true
@@ -300,12 +322,17 @@ export class Battle {
     const effect=this.feverTime>0?2.15:1
     itch.progress=Math.min(3,itch.progress+effect*(this.dogMotion>=3.85?.4:1))
     if(itch.progress===3) {
-      this.addAction(135,25)
+      const link=this.linkCandidate&&this.linkCandidate.until>=this.elapsed&&distance(itch,this.linkCandidate)<104
+      this.addAction(link?340:135,link?35:25)
+      if(link) {
+        this.linkCandidate=undefined
+        this.linkTrail=1.6
+      }
       const reveals=!!(itch.hidden||itch.fugitive)
       this.bursts.push({x:itch.x,y:itch.y,age:0,type:'scratch',quietText:reveals})
-      this.announce('そこそこぉ〜！',1.05)
+      this.announce(link?'そこそこ！ 連係':'そこそこぉ〜！',1.05,link?2:0)
       this.reaction=1.05
-      this.sound('scratch')
+      this.sound(link?'link':'scratch')
       if(itch.hidden||itch.fugitive) this.reveal(itch,itch.fugitive ?? this.makeFlea(itch.hidden!))
     }
   }
@@ -362,6 +389,7 @@ export class Battle {
       }
       f.phase='gone'
       this.defeated++
+      if(this.demon&&f.time<=.46) this.linkCandidate={...at,until:this.elapsed+3.2}
       this.addAction(f.comboReady?360:f.spec.hideAt?270:185,36)
       if(f.comboReady) {
         this.combos++
@@ -502,11 +530,15 @@ export class Battle {
       const captain=f.spec.kind==='captain'
       const king=f.spec.kind==='king'
       const lastLanding=!!(f.spec.hideAt&&f.emerged)
+      if(f.spec.veil&&f.phase==='warning') {
+        this.veilArt(c,f,ease,reduced)
+        continue
+      }
       if(f.phase!=='land') {
         const dest=f.spec.route[f.to]
         if(captain && lastLanding && f.hop===0) {
           box(c,'#452d47',dest.x-11,dest.y+ease+4,22,5)
-        } else {
+        } else if(!f.spec.veil) {
           this.marker(c,dest.x,dest.y+ease,captain,f.phase==='warning'&&captain?'1':'')
           if(captain && f.hop===0) {
             const next=f.spec.route[(f.to+1)%f.spec.route.length]
@@ -517,6 +549,7 @@ export class Battle {
       box(c,'#392a3b99',x-10,y+ease+5,20,4)
       if(f.phase==='land') {
         if(f.comboReady||lastLanding) this.landingRing(c,x,y+ease,f.comboReady?1-f.time/combo.catchTime:0)
+        else if(f.spec.veil) this.landingRing(c,x,y+ease,0)
         const offset=king?29:14
         box(c,'#ffe1a5',x-offset,y+ease+8,5,2)
         box(c,'#ffe1a5',x+offset-4,y+ease+8,5,2)
@@ -532,6 +565,9 @@ export class Battle {
         for(const offset of [-1,1]) box(c,'#c57c9b',x+offset*22,y+ease-height-6,5,3)
       }
       fleaArt(c,x,y+ease-height,captain||king,king?1.72:1)
+    }
+    if(this.companionHint&&this.companionHint.until>this.elapsed) {
+      paw(c,clamp(this.companionHint.x-28,18,366),clamp(this.companionHint.y-21,22,321))
     }
     for(const b of this.bursts) {
       if(b.type==='hit'||b.type==='combo') fleaArt(c,b.x+44*b.age,b.y-102*b.age+66*b.age*b.age,false,Math.max(.3,1-b.age),b.age*12)
@@ -552,6 +588,9 @@ export class Battle {
     c.restore()
     if(!this.done) {
       const {x,y}=this.tool
+      if(this.demon&&(this.linkTrail>0||this.feverTime>0)&&!reduced&&this.gesture) {
+        for(let i=1;i<=6;i++) box(c,i%2?'#f9cc7e':'#ffe7a5',x+i*5,y+i*4,7-i*.5,3)
+      }
       if(this.gesture) {
         box(c,'#fff4b1',x-14,y,5,1)
         box(c,'#fff4b1',x+10,y,5,1)
@@ -563,6 +602,28 @@ export class Battle {
       label(c,'✦',123,75,'#ffd98f',17)
       label(c,'✦',267,91,'#ffd98f',21)
       if(this.demon&&this.finishTime>.15) victoryArt(c,this.person,this.finishTime,reduced)
+    }
+  }
+
+  private veilArt(c: CanvasRenderingContext2D,f: Flea,ease: number,reduced: boolean) {
+    const start=f.spec.route[f.from],end=f.spec.route[f.to]
+    const active=Math.min(2,Math.floor(f.time/f.spec.warning*3))
+    for(const [i,t] of [.27,.62,1].entries()) {
+      const x=Math.round(start.x+(end.x-start.x)*t)
+      const y=Math.round(start.y+(end.y-start.y)*t)+ease
+      const sway=!reduced&&i===active?Math.round(Math.sin(f.time*35)*4):0
+      if(f.spec.veil==='leaf') {
+        poly(c,'#1d303e',[x-17,y+6,x-13,y-7,x+8,y-12+sway,x+16,y-3,x+10,y+8,x-7,y+11])
+        poly(c,i===active?'#a9d792':'#638f76',[x-14,y+4,x-10,y-6,x+8,y-9+sway,x+13,y-3,x+8,y+5,x-6,y+8])
+        box(c,'#446b66',x-9,y+2,19,2)
+      } else {
+        poly(c,'#412a52',[x-19,y+5,x-10,y-9+sway,x,y-4,x+10,y-10+sway,x+19,y+5,x+10,y+2,x,y+5,x-10,y+1])
+        poly(c,i===active?'#ffe1a0':'#ad7d94',[x-15,y+3,x-9,y-6+sway,x,y-1,x+9,y-6+sway,x+15,y+3,x+8,y,x,y+2,x-8,y-1])
+      }
+      if(i===active) {
+        box(c,'#fff1b4',x-1,y-16+sway,3,5)
+        box(c,'#fff1b4',x+7,y-14+sway,2,3)
+      }
     }
   }
 

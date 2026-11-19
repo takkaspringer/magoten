@@ -125,4 +125,4 @@ export const knightExit: Line[] = [
   line('ガチガチ団長','衣装部屋だ。'),
 ]
 
-export const playableDemons=demonPeople.slice(0,1)
+export const playableDemons=demonPeople.slice(0,2)

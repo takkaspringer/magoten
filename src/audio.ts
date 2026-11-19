@@ -1,5 +1,5 @@
 type Volumes = { music: number; effects: number }
-type Effect = 'hit' | 'scratch' | 'miss' | 'step' | 'select' | 'win' | 'pop' | 'combo' | 'retreat' | 'level' | 'fever' | 'peel'
+type Effect = 'hit' | 'scratch' | 'miss' | 'step' | 'select' | 'win' | 'pop' | 'combo' | 'retreat' | 'level' | 'fever' | 'peel' | 'link' | 'dog'
 const scores: Record<string, number[]> = {
   town: [67,0,71,74,72,0,71,69,67,0,64,67,62,0,64,66,67,0,71,76,74,0,72,71,69,0,72,69,67,0,62,66],
   battle: [57,0,60,57,64,60,0,67,59,0,62,59,65,62,0,69],
@@ -12,6 +12,7 @@ const effects: Record<Effect, number[]> = {
   pop: [59,78,84], combo: [69,88,93], retreat: [77,64,51], level: [72,76,79,84,88],
   fever: [64,71,76,83,88,95],
   peel: [55,67,74],
+  link: [76,81,88,93], dog: [56,64],
 }
 export class Audio {
   private ctx?: AudioContext
