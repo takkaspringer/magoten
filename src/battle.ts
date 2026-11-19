@@ -1,6 +1,6 @@
-import { battleBase, box, fleaArt, label, poly, toolArt } from './art'
-import { captain, combo, levels } from './data'
-import type { FleaSpec, ItchSpec, Point, TownPerson } from './data'
+import { battleBase, box, dogTail, fleaArt, label, poly, toolArt } from './art'
+import { captain, combo, levels, scout } from './data'
+import type { ClaspSpec, FleaSpec, ItchSpec, Point, TownPerson } from './data'
 
 type Phase = 'warning' | 'jump' | 'feint' | 'land' | 'retreat' | 'hidden' | 'emerge' | 'gone'
 type Flea = {
@@ -15,6 +15,7 @@ type Flea = {
   launchFrom?: Point
   emerged: boolean
   comboReady: boolean
+  strikes: number
 }
 type Itch = ItchSpec & { progress: number; fugitive?: Flea }
 type Gesture = {
@@ -42,6 +43,7 @@ export class Battle {
   hits = 0
   misses = 0
   combos = 0
+  defeated = 0
   private finishTime = 0
   private message?: { text: string; left: number; priority: number }
   private reaction = 0
@@ -50,6 +52,7 @@ export class Battle {
   private bursts: Burst[] = []
   private fleas: Flea[]
   private itches: Itch[]
+  private clasps: (ClaspSpec & { opened: boolean })[]
   private base?: HTMLCanvasElement
   private level: (typeof levels)[number]
 
@@ -57,24 +60,37 @@ export class Battle {
     private sound: (event: BattleEvent) => void, private showComboTip: boolean) {
     this.level = levels[level]
     this.itches = person.itches.map(p=>({...p,progress:0}))
-    this.fleas = person.fleas.map(spec=>({
-      spec, phase: spec.kind==='captain'?'warning':'land', time: spec.start ?? 0,
-      from: spec.kind==='captain'?spec.route.length-1:0, to: 0, hop: 0, emerged:false, comboReady:false,
+    this.clasps = (person.clasps ?? []).map(clasp=>({...clasp,opened:false}))
+    this.fleas = person.fleas.map(spec=>this.makeFlea(spec))
+    if(person.id==='royal') this.announce('ノミ魔王が あらわれた！',1.65,2)
+  }
+
+  private makeFlea(spec: FleaSpec): Flea {
+    return {
+      spec, phase: spec.kind==='normal'?'land':'warning', time: spec.start ?? 0,
+      from: spec.kind==='normal'?0:spec.route.length-1, to:0, hop:0, emerged:false, comboReady:false, strikes:0,
       added: 0, nextAdd: spec.addAfter ?? Infinity,
-    }))
+    }
   }
 
   get remainingFleas() { return this.fleas.filter(f=>f.phase!=='gone').length }
   get remainingItches() { return this.itches.filter(i=>i.progress<3).length }
-  get done() { return this.remainingFleas===0 && this.remainingItches===0 }
+  get remainingClasps() { return this.clasps.filter(c=>!c.opened).length }
+  get done() { return this.remainingFleas===0 && this.remainingItches===0 && this.remainingClasps===0 }
   get readyForResult() { return this.finishTime>=1.06 && !this.message }
+  private get dogMotion() { return this.person.id==='dog'?this.elapsed%5:0 }
+  private get dogShake() { return this.dogMotion>=3.85?Math.round(Math.sin(this.elapsed*42)*6):0 }
 
   get hint() {
     if(this.message) return this.message.text
     if(this.done) return '背中、すっきり！'
     if (this.person.id==='baker') return this.remainingFleas ? 'ノミは 着地したらタップ！' : '光るところを 左右か上下にこすれ！'
     if(this.fleas.some(f=>f.phase==='land'&&(f.comboReady || (f.spec.hideAt&&f.emerged)))) return 'いま！ 輪のノミをたたけ！'
-    if(this.fleas.some(f=>f.phase==='hidden')) return '震えるかゆみをこすって 隊長を追い出せ！'
+    if(this.fleas.some(f=>f.phase==='hidden')) return '震えるかゆみをこすって 追い出せ！'
+    if(this.remainingClasps) return '金色の留め具をタップして開けよう！'
+    if(this.dogMotion>=3.85) return 'ブルブル中！ 止まるとかきやすいよ'
+    if(this.dogMotion>=3.15) return '耳が動いた！ もうすぐブルブル'
+    if(this.person.id==='dog' && this.remainingItches) return '犬が止まったときに こすろう！'
     if(this.showComboTip && this.elapsed<4.5) return combo.tip
     if(this.fleas.some(f=>f.spec.kind==='captain' && f.phase!=='gone')) return 'ピョン隊長は 二度目の着地をねらえ！'
     if(this.remainingItches && this.remainingFleas) return '着地を待つ間に 光るところをこすれ！'
@@ -155,13 +171,14 @@ export class Battle {
     if(f.phase==='warning') return {...from,height:0}
     if(f.phase!=='jump') return {...target,height:0}
     const t=clamp(f.time/f.spec.jump,0,1)
-    const height=f.launchFrom?49:f.hop?44:28
+    const height=f.spec.kind==='king'?68:f.launchFrom?49:f.hop?44:28
     return {x:from.x+(target.x-from.x)*t,y:from.y+(target.y-from.y)*t,height:Math.sin(t*Math.PI)*height}
   }
 
   begin(p: Point) {
     if(this.done) return
-    const itch=this.itches.filter(i=>i.progress<3 && distance(i,p)<=this.level.radius)
+    const at={x:p.x-this.dogShake,y:p.y}
+    const itch=this.itches.filter(i=>i.progress<3 && distance(i,at)<=this.level.radius)
       .sort((a,b)=>distance(a,p)-distance(b,p))[0]
     this.gesture={start:p,last:p,itch,extent:0,distance:0,drag:false,started:this.elapsed}
     this.tool=p
@@ -177,7 +194,7 @@ export class Battle {
     if(distance(g.start,p)>7 || g.distance>12) g.drag=true
     const itch=g.itch
     if(!g.drag || !itch || itch.progress>=3) return
-    if(distance(itch,p)>this.level.radius+9) {
+    if(distance(itch,{x:p.x-this.dogShake,y:p.y})>this.level.radius+9) {
       g.axis=undefined
       g.extent=0
       g.start=p
@@ -197,30 +214,26 @@ export class Battle {
     if(g.extent-projected<7) return
     g.axis={x:-g.axis.x,y:-g.axis.y}
     g.extent=-projected
-    itch.progress=Math.min(3,itch.progress+this.level.gain)
+    itch.progress=Math.min(3,itch.progress+(this.dogMotion>=3.85?.4:1))
     if(itch.progress===3) {
       const reveals=!!(itch.hidden||itch.fugitive)
       this.bursts.push({x:itch.x,y:itch.y,age:0,type:'scratch',quietText:reveals})
       this.announce('そこそこぉ〜！',1.05)
       this.reaction=1.05
       this.sound('scratch')
-      if(reveals) this.reveal(itch)
+      if(itch.hidden||itch.fugitive) this.reveal(itch,itch.fugitive ?? this.makeFlea(itch.hidden!))
     }
   }
 
-  private reveal(itch: Itch) {
-    const f: Flea = itch.fugitive ?? {
-      spec:itch.hidden!, phase:'emerge', time:0, from:0, to:0, hop:0,
-      added:0, nextAdd:Infinity, emerged:true, comboReady:true,
-    }
+  private reveal(origin: Point, f: Flea, comboReady=true) {
     f.phase='emerge'
     f.time=0
     f.hop=0
     f.to=f.spec.hideAt?.firstLanding ?? 0
-    f.launchFrom=itch
+    f.launchFrom=origin
     f.emerged=true
-    f.comboReady=true
-    if(!itch.fugitive) this.fleas.push(f)
+    f.comboReady=comboReady
+    if(!this.fleas.includes(f)) this.fleas.push(f)
   }
 
   end(p: Point) {
@@ -229,22 +242,39 @@ export class Battle {
     this.move(p)
     this.gesture=undefined
     if(g.drag || this.done) return
+    p={x:p.x-this.dogShake,y:p.y}
     const hit=this.fleas.filter(f=>f.phase==='land'&&f.time>=0&&(!f.emerged||g.started>=this.elapsed-f.time-1e-6))
       .map(f=>({ f, at:this.location(f) }))
-      .filter(({f,at})=>distance(p,{x:at.x,y:at.y-4})<=(f.spec.kind==='captain'?21:18))
+      .filter(({f,at})=>distance(p,{x:at.x,y:at.y-4})<=(f.spec.kind==='king'?29:f.spec.kind==='captain'?21:18)+this.level.hit)
       .sort((a,b)=>distance(a.at,p)-distance(b.at,p))[0]
     if(hit) {
       const {f,at}=hit
       this.hits++
+      f.strikes++
+      if(f.spec.kind==='king' && f.strikes===1) {
+        f.from=f.to
+        f.to=(f.to+1)%f.spec.route.length
+        f.phase='warning'
+        f.time=0
+        this.fleas.push(
+          this.makeFlea(scout([{x:119,y:180},{x:167,y:232},{x:221,y:151}],-.35)),
+          this.makeFlea(scout([{x:258,y:247},{x:155,y:161},{x:215,y:227}],-.78)),
+        )
+        this.bursts.push({...at,age:0,type:'retreat'})
+        this.announce('第2形態！ 魔王が手下を呼んだぞ！',2.15,3)
+        this.sound('retreat')
+        return
+      }
       if(f.spec.hideAt && !f.emerged) {
         f.phase='retreat'
         f.time=0
         this.bursts.push({...at,age:0,type:'retreat'})
-        this.announce(captain.retreatLine,captain.retreatTime,3)
+        this.announce(f.spec.kind==='king'?'最終形態！ 魔王が服の下に逃げた！':captain.retreatLine,captain.retreatTime,3)
         this.sound('retreat')
         return
       }
       f.phase='gone'
+      this.defeated++
       if(f.comboReady) {
         this.combos++
         this.announce('かき出しコンボ！',1.15,2)
@@ -252,8 +282,16 @@ export class Battle {
       } else this.sound('hit')
       if(f.spec.hideAt) {
         this.bursts.push({...at,age:0,type:'escape'})
-        this.announce(captain.exitLine,2.25,3)
+        this.announce(f.spec.kind==='king'?'覚えておれ！ 次は足の裏だーっ！':captain.exitLine,2.25,3)
       } else this.bursts.push({...at,age:0,type:f.comboReady?'combo':'hit'})
+      return
+    }
+    const clasp=this.clasps.find(c=>!c.opened&&distance(c,p)<=22)
+    if(clasp) {
+      clasp.opened=true
+      this.reveal(clasp,this.makeFlea(clasp.flea),false)
+      this.announce('カチッ！ ノミが飛び出した！',1.25,3)
+      this.sound('pop')
     } else if(!g.itch && this.remainingFleas) {
       this.misses++
       this.bursts.push({...p,age:0,type:'miss'})
@@ -271,8 +309,35 @@ export class Battle {
       battleBase(this.base.getContext('2d')!,this.person)
     }
     const ease=this.reaction>0 ? Math.round(Math.sin(Math.min(1,this.reaction)*Math.PI)*3) : 0
-    box(c,'#253b3d',0,0,384,344)
-    c.drawImage(this.base,0,ease)
+    const shake=this.dogShake
+    box(c,this.person.id==='dog'?'#374e44':'#253b3d',0,0,384,344)
+    c.drawImage(this.base,shake,ease)
+    if(this.person.id==='dog') {
+      dogTail(c,this.elapsed,shake)
+      if(this.dogMotion>=3.15) {
+        for(const x of [113,263]) {
+          box(c,'#f9de9d',x,59,9,2)
+          box(c,'#f9de9d',x+3,53,2,6)
+        }
+      }
+    }
+    c.save()
+    c.translate(shake,0)
+    for(const clasp of this.clasps) {
+      const {x,y,opened}=clasp
+      if(!opened) {
+        poly(c,'#3d4057',[x-30,y-24,x+21,y-23,x+28,y+7,x+17,y+31,x-27,y+21])
+        poly(c,this.person.id==='royal'?'#ba686f':'#849db0',[x-27,y-21,x+17,y-20,x+24,y+6,x+15,y+26,x-24,y+18])
+        box(c,'#484457',x-15,y-10,30,22)
+        box(c,'#e4b568',x-11,y-8,22,17)
+        box(c,'#ffed9d',x-8,y-6,16,3)
+        box(c,'#79505a',x-4,y,8,6)
+        if(Math.floor(this.elapsed*4)%3===0) box(c,'#fff2a8',x+15,y-13,4,4)
+      } else {
+        box(c,'#4d4357',x-10,y-6,6,15)
+        box(c,'#b89868',x+7,y-5,7,12)
+      }
+    }
     for(const i of this.itches) {
       if(i.progress>=3) continue
       const pulse=Math.floor(this.elapsed*5)%3
@@ -316,7 +381,7 @@ export class Battle {
         const hide=f.spec.hideAt!
         const t=Math.min(1,f.time/.5)
         this.cloth(c,hide.x,hide.y+ease,t>=1&&Math.floor(f.time*19)%2===0)
-        if(t<1) fleaArt(c,from.x+(hide.x-from.x)*t,from.y+(hide.y-from.y)*t-Math.sin(t*Math.PI)*23+ease,true,1-t*.7,t*1.3)
+        if(t<1) fleaArt(c,from.x+(hide.x-from.x)*t,from.y+(hide.y-from.y)*t-Math.sin(t*Math.PI)*23+ease,true,(f.spec.kind==='king'?1.7:1)*(1-t*.7),t*1.3)
         continue
       }
       if(f.phase==='emerge') {
@@ -325,10 +390,11 @@ export class Battle {
       }
       const {x,y,height}=this.location(f)
       const captain=f.spec.kind==='captain'
+      const king=f.spec.kind==='king'
       const lastLanding=!!(f.spec.hideAt&&f.emerged)
       if(f.phase!=='land') {
         const dest=f.spec.route[f.to]
-        if(lastLanding && f.hop===0) {
+        if(captain && lastLanding && f.hop===0) {
           box(c,'#452d47',dest.x-11,dest.y+ease+4,22,5)
         } else {
           this.marker(c,dest.x,dest.y+ease,captain,f.phase==='warning'&&captain?'1':'')
@@ -341,10 +407,14 @@ export class Battle {
       box(c,'#392a3b99',x-10,y+ease+5,20,4)
       if(f.phase==='land') {
         if(f.comboReady||lastLanding) this.landingRing(c,x,y+ease,f.comboReady?1-f.time/combo.catchTime:0)
-        box(c,'#ffe1a5',x-14,y+ease+8,5,2)
-        box(c,'#ffe1a5',x+10,y+ease+8,5,2)
+        const offset=king?29:14
+        box(c,'#ffe1a5',x-offset,y+ease+8,5,2)
+        box(c,'#ffe1a5',x+offset-4,y+ease+8,5,2)
       }
-      fleaArt(c,x,y+ease-height,captain)
+      if(king) {
+        for(const offset of [-1,1]) box(c,'#c57c9b',x+offset*22,y+ease-height-6,5,3)
+      }
+      fleaArt(c,x,y+ease-height,captain||king,king?1.72:1)
     }
     for(const b of this.bursts) {
       if(b.type==='hit'||b.type==='combo') fleaArt(c,b.x+44*b.age,b.y-102*b.age+66*b.age*b.age,false,Math.max(.3,1-b.age),b.age*12)
@@ -362,6 +432,7 @@ export class Battle {
         label(c,text,b.x,b.y-23-b.age*21,b.type==='combo'?'#c4ffe3':'#fff6c7',14)
       }
     }
+    c.restore()
     if(!this.done) {
       const {x,y}=this.tool
       if(this.gesture) {

@@ -164,7 +164,7 @@ meter::-moz-meter-bar { background: #d4b477; }
   box-shadow: 0 0 0 4px #15272d, 0 8px 24px #101b22ad;
   text-align: center;
 }
-.result-card { width: min(90%,440px); }
+.result-card { width: min(90%,440px); max-height: calc(100% - 20px); overflow: auto; overscroll-behavior: contain; pointer-events: auto; }
 .result-card h2, .panel h2 { margin: 5px 0 6px; color: #ffe0a0; font-size: clamp(1.35rem,3vw,2.15rem); line-height: 1.2; }
 .result-card p { margin: 7px 0; line-height: 1.45; }
 .stars { color: #ffcf83; font-size: clamp(1.3rem,4vw,2.15rem); letter-spacing: .12em; }
@@ -176,6 +176,8 @@ meter::-moz-meter-bar { background: #d4b477; }
 .level-up { color: #ffdb9a; font-weight: 900; }
 .combo-result { color: #b5ebd4; font-weight: 800; }
 .combo-result strong { margin-left: .3em; }
+.rescue-note, .staff-credit { color: var(--mint); }
+.clasp-count { margin: 0; color: #f5d49a; font-size: .9rem; }
 .result-card .button + .button { margin-left: 6px; }
 .tip { color: #d5dfc5; font-size: .94rem; }
 .result-card .button { margin-top: 4px; }

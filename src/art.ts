@@ -1,4 +1,4 @@
-import { buildings, districts, railings, treeSpots, world } from './data'
+import { buildings, cityY, districts, gate, railings, treeSpots, world } from './data'
 import type { Point, TownPerson } from './data'
 
 type Ink = CanvasRenderingContext2D
@@ -102,7 +102,7 @@ export function fleaArt(c: Ink, x: number, y: number, captain = false, scale = 1
   c.restore()
 }
 
-function house(c: Ink, b: (typeof buildings)[number]) {
+function house(c: Ink, b: (typeof buildings)[number], opening=0) {
   const {x,y,w,h,style} = b
   if (style === 'gate') {
     box(c, '#263e42', x + 7, y + 22, w - 4, h - 5)
@@ -118,8 +118,12 @@ function house(c: Ink, b: (typeof buildings)[number]) {
       box(c, '#2d454c', tx + 15, y + 37, 8, 19)
       box(c, '#e7af69', tx + 17, y + 40, 4, 12)
     }
-    poly(c, deep, [x+61,y+h,x+61,y+69,x+74,y+53,x+108,y+53,x+121,y+69,x+121,y+h])
-    for(let i=0;i<7;i++) box(c, '#41595a', x + 65 + i * 8, y + 65, 3, h - 65)
+    poly(c,'#817d77',[x+52,y+h,x+52,y+64,x+70,y+46,x+112,y+46,x+130,y+64,x+130,y+h])
+    box(c,'#ae9880',x+66,y+66,50,h-66)
+    box(c,'#d1b18d',x+76,y+76,30,2)
+    const drop=Math.round((1-opening)*44)
+    for(let i=0;i<7;i++) box(c, '#3e454d', x + 64 + i * 8, y + 65, 4, drop)
+    if(drop>4) box(c,'#8f775e',x+64,y+61+drop,52,3)
     box(c, '#a6464b', x+48, y+40, 12, 32)
     box(c, '#a6464b', x+w-60, y+40, 12, 32)
     return
@@ -173,6 +177,79 @@ function tree(c: Ink,x: number,y: number) {
   box(c, '#6b9475', x-4, y-34, 7, 2)
 }
 
+function palace(c: Ink) {
+  for(let y=24;y<288;y+=24) for(let x=324;x<736;x+=24) {
+    box(c,grain(x,y)%2?'#736779':'#685e72',x,y,23,23)
+    box(c,'#867784',x+3,y+2,17,1)
+  }
+  box(c,'#30263f',0,21,320,266)
+  box(c,'#30263f',736,21,320,266)
+  box(c,'#a58670',320,27,10,263)
+  box(c,'#a58670',725,27,11,263)
+  box(c,'#b09a7f',330,28,395,14)
+  box(c,'#55324e',457,41,134,283)
+  box(c,'#eac08a',461,44,4,280)
+  box(c,'#eac08a',583,44,4,280)
+  box(c,'#853e59',467,44,114,280)
+  for(let y=131;y<320;y+=35) {
+    poly(c,'#a95164',[522,y-8,532,y,522,y+8,512,y])
+  }
+  for(const x of [354,659]) {
+    for(const y of [67,168,237]) {
+      box(c,'#3b3449',x,y,42,22)
+      box(c,'#b4a28f',x+3,y,36,15)
+      box(c,'#d0b89b',x+4,y-6,34,10)
+      box(c,'#edc176',x+10,y-14,7,9)
+      box(c,'#ffecae',x+12,y-17,3,7)
+    }
+  }
+  box(c,'#3c2b43',481,73,90,51)
+  box(c,'#d8a565',486,69,80,46)
+  box(c,'#f1c77b',495,59,62,48)
+  box(c,'#8e4160',501,64,50,39)
+  box(c,'#ffdf91',522,70,8,20)
+  box(c,'#99645d',484,113,84,8)
+
+  for(const [x,w] of [[0,483],[568,488]]) {
+    box(c,'#4c435e',x,287,w,41)
+    box(c,'#b6a18e',x,289,w,28)
+    box(c,'#e3c29c',x,291,w,5)
+    for(let tx=x+12;tx<x+w-11;tx+=32) {
+      box(c,'#857789',tx,307,28,2)
+      box(c,'#c9ae97',tx,300,18,3)
+    }
+  }
+  for(const x of [360,616]) {
+    box(c,'#575074',x,226,83,92)
+    poly(c,'#59405c',[x-9,241,x+12,201,x+69,201,x+91,241])
+    poly(c,'#806280',[x-3,235,x+15,204,x+67,204,x+84,235])
+    box(c,'#d4a975',x+9,242,65,5)
+    for(const dx of [16,46]) {
+      box(c,'#403751',x+dx,256,20,25)
+      box(c,'#efc084',x+dx+4,260,12,16)
+      box(c,'#9a796d',x+dx+9,259,2,20)
+    }
+  }
+  box(c,'#cfad7d',486,305,79,19)
+  box(c,'#927765',486,322,79,4)
+  for(const x of [362,616]) {
+    box(c,'#525d5c',x+1,436,74,56)
+    box(c,'#b6a085',x+4,440,68,49)
+    box(c,'#68577a',x+7,446,62,34)
+    box(c,'#498489',x+11,449,54,28)
+    box(c,'#98c4b4',x+17,454,38,2)
+    box(c,'#eacaaa',x+35,442,5,28)
+    box(c,'#bae4cc',x+26,449,22,2)
+  }
+  box(c,'#65616d',0,gate.y+17,474,24)
+  box(c,'#65616d',569,gate.y+17,487,24)
+  for(let x=17;x<world.w;x+=23) {
+    if(x>426&&x<613) continue
+    box(c,'#b9a791',x,gate.y+10,13,16)
+    box(c,'#a58f81',x,gate.y+29,19,5)
+  }
+}
+
 let terrain: HTMLCanvasElement | undefined
 function mapBase() {
   const out = document.createElement('canvas')
@@ -182,9 +259,24 @@ function mapBase() {
   for (let y=0;y<world.h;y+=24) {
     for(let x=0;x<world.w;x+=24) {
       const rnd = grain(x,y)
-      const path = (x>=168&&x<336&&y>=472) || (x>=456&&x<600&&y<680) ||
-        (y>=432&&y<552&&x>=432) || (y>=576&&y<648&&x>=96&&x<600) ||
-        (x>=744&&x<864&&y>=390&&y<576)
+      const yy=y-cityY
+      if(y<gate.y+32) {
+        const paved=(x>=456&&x<600)||(y>360&&y<553&&x>=300&&x<762)
+        box(c,paved?['#968b7d','#9f9185','#8d827c'][rnd%3]:['#526a5d','#587160','#56695b'][rnd%3],x,y,24,24)
+        box(c,paved?'#766d72':'#748870',x+4,y+3,11,1)
+        if(paved) box(c,'#746d70',x+1,y+23,23,1)
+        continue
+      }
+      const park=x>=552&&x<744&&yy>=312&&yy<432
+      const path = (x>=168&&x<336&&yy>=472) || (x>=456&&x<600&&yy<680) ||
+        (yy>=432&&yy<552&&x>=432) || (yy>=576&&yy<648&&x>=96&&x<600) ||
+        (x>=744&&x<864&&yy>=390&&yy<576)
+      if(park) {
+        box(c,['#57754b','#5a7b50','#527450'][rnd%3],x,y,24,24)
+        box(c,'#8fa969',x+7,y+5,2,3)
+        if(rnd%3===0) box(c,'#d9b383',x+16,y+14,3,2)
+        continue
+      }
       box(c, path ? ['#656c64','#686e65','#626a64'][rnd%3] : ['#394f48','#3c514a','#40554c'][rnd%3],x,y,24,24)
       if(path) {
         box(c,'#545e57',x,y+11,24,1)
@@ -198,15 +290,21 @@ function mapBase() {
       }
     }
   }
+  palace(c)
   box(c,'#182d32',0,0,world.w,17)
   box(c,'#213839',0,17,world.w,7)
   box(c,'#263e3d',0,world.h-19,world.w,19)
   box(c,'#22383a',0,0,18,world.h)
   box(c,'#203538',world.w-18,0,18,world.h)
-  for(let y=21;y<167;y+=8) {
+  for(let y=21+cityY;y<167+cityY;y+=8) {
     box(c,'#315f6b',944,y,112,8)
     box(c,'#51818a',948+grain(y,12)%65,y+2,33,1)
     box(c,'#688377',942,y,4,8)
+  }
+  for(const x of [584,650]) {
+    box(c,'#374b45',x,cityY+354,34,11)
+    box(c,'#b48f65',x,cityY+350,34,3)
+    box(c,'#9c7657',x,cityY+356,34,3)
   }
   for(const r of railings) {
     box(c,'#322f30',r.x,r.y+3,r.w,5)
@@ -214,15 +312,15 @@ function mapBase() {
     for(let dx=0;dx<r.w;dx+=14) box(c,'#c4a076',r.x+dx,r.y-3,3,12)
   }
   for (const d of districts) {
-    box(c, '#543c39', d.x - 26, d.y - 8, 52, 17)
-    box(c, '#74554b', d.x - 25, d.y - 7, 50, 14)
+    box(c, '#543c39', d.x - 32, d.y - 8, 64, 17)
+    box(c, '#74554b', d.x - 31, d.y - 7, 62, 14)
     label(c,d.name,d.x,d.y,d.color,10)
   }
   return out
 }
 
 function fountain(c: Ink) {
-  const x=249,y=657
+  const x=249,y=657+cityY
   poly(c,'#3c4a4c',[x,y+8,x+9,y,x+45,y,x+54,y+10,x+54,y+28,x+45,y+36,x+9,y+36,x,y+28])
   poly(c,'#9b9d8d',[x+2,y+10,x+10,y+2,x+44,y+2,x+52,y+10,x+52,y+25,x+44,y+31,x+10,y+31,x+2,y+25])
   poly(c,'#487f88',[x+6,y+12,x+12,y+5,x+42,y+5,x+48,y+12,x+48,y+23,x+42,y+27,x+12,y+27,x+6,y+23])
@@ -231,7 +329,34 @@ function fountain(c: Ink) {
   box(c,'#82cac0',x+18,y+5,19,2)
 }
 
+function dogArt(c: Ink,x: number,y: number,frame: number,well: boolean,facing=1) {
+  c.save()
+  c.translate(Math.round(x),Math.round(y))
+  c.scale(facing,1)
+  const step=frame%2===0?0:3
+  const wag=well?frame%5*2:3
+  box(c,'#263d35',-20,-3,39,5)
+  poly(c,'#56394a',[-15,-13,-20,-20,-24,-20-wag,-19,-17-wag,-12,-16])
+  poly(c,'#69464a',[-16,-2,-17,-16,-9,-23,10,-22,13,-29,20,-28,22,-23,22,-19,26,-17,26,-11,15,-9,14,-2])
+  poly(c,'#c08c58',[-14,-5,-14,-16,-8,-20,5,-20,13,-18,15,-11,10,-5])
+  box(c,'#845248',-14,-6,5,6-step)
+  box(c,'#a57251',-4,-8,5,5+step)
+  box(c,'#845248',9,-9,5,9-step)
+  box(c,'#dba774',13,-24,8,12)
+  box(c,'#f3d296',18,-17,7,5)
+  box(c,'#402d3d',23,-16,4,3)
+  box(c,'#392c39',18,-22,2,3)
+  box(c,'#734950',11,-25,4,10)
+  box(c,well?'#cbebad':'#ea8f6e',9,-15,3,8)
+  c.restore()
+}
+
 export function personArt(c: Ink, p: TownPerson, x: number, y: number, frame: number, well: boolean, bubble = true) {
+  if(p.id==='dog') {
+    dogArt(c,x,y,frame,well)
+    if(!well) label(c,'わんっ！',x,y-43,'#ffe2a8',11)
+    return
+  }
   const twist = well ? 0 : [-1,0,2][frame % 3]
   const bob = well ? 0 : frame % 3 === 1 ? -2 : 0
   const waving = well && bubble && p.id==='baker'
@@ -255,9 +380,13 @@ export function personArt(c: Ink, p: TownPerson, x: number, y: number, frame: nu
   if(p.id==='baker') {
     box(c,'#e7d3a8',x-9+twist,y-42+bob,18,5)
     box(c,'#f2e8cf',x-7+twist,y-47+bob,13,7)
-  } else if(p.id==='guard') {
+  } else if(p.id==='guard'||p.id==='soldier') {
     box(c,'#92acb9',x-10+twist,y-41+bob,20,5)
     box(c,'#b9cbd0',x-6+twist,y-46+bob,12,8)
+  } else if(p.id==='royal') {
+    poly(c,'#f4cf79',[x-11+twist,y-42+bob,x-12+twist,y-51+bob,x-5+twist,y-47+bob,x+1+twist,y-54+bob,x+5+twist,y-47+bob,x+11+twist,y-51+bob,x+10+twist,y-42+bob])
+    box(c,'#a14a67',x-1+twist,y-47+bob,3,4)
+    box(c,'#f0dfc1',x-5+twist,y-30+bob,10,5)
   } else {
     box(c,'#a8bf77',x-10+twist,y-42+bob,20,3)
   }
@@ -316,28 +445,79 @@ function bunting(c: Ink,x: number,y: number,clock: number) {
   }
 }
 
-export function town(c: Ink, camera: Camera, player: Point, villagers: TownPerson[], saved: string[], clock: number, moving: boolean, facing: number, proud = false) {
+type TownEffects = { gateOpening: number; follower?: Point & { facing: number }; legendary?: boolean; proud?: boolean }
+
+export function town(c: Ink, camera: Camera, player: Point, villagers: TownPerson[], saved: string[], clock: number, moving: boolean, facing: number, effects: TownEffects) {
   terrain ??= mapBase()
   c.drawImage(terrain, camera.x,camera.y,camera.w,camera.h,0,0,camera.w,camera.h)
   const drawables = [
     ...buildings.map(b=>({y:b.y+b.h,x:b.x+b.w/2,draw:()=>house(c,b)})),
     ...treeSpots.map(p=>({...p,draw:()=>tree(c,p.x,p.y)})),
-    ...villagers.map(p=>({...p.at,draw:()=>personArt(c,p,p.at.x,p.at.y,Math.floor(clock*7),saved.includes(p.id))})),
-    { x: 276, y: 693, draw: () => fountain(c) },
-    {...player,draw:()=>hero(c,player.x,player.y,moving?Math.floor(clock*9):0,facing,1,proud)},
+    ...villagers.filter(p=>p.id!=='dog'||!effects.follower).map(p=>({...p.at,draw:()=>personArt(c,p,p.at.x,p.at.y,Math.floor(clock*7),saved.includes(p.id))})),
+    { x: 276, y: 693+cityY, draw: () => fountain(c) },
+    { x: gate.x+gate.w/2, y: gate.y+46, draw: () => house(c,gate,effects.gateOpening) },
+    {...player,draw:()=>{
+      if(effects.legendary) {
+        for(let i=0;i<5;i++) {
+          const angle=clock*1.7+i*1.26
+          box(c,'#fbe18c',player.x+Math.cos(angle)*23,player.y-24+Math.sin(angle)*22,3,3)
+        }
+      }
+      hero(c,player.x,player.y,moving?Math.floor(clock*9):0,facing,1,effects.proud)
+    }},
   ]
-  for(let i=0;i<3;i++) drawables.push({y:579,x:128+i*20,draw:()=>crate(c,128+i*20,569,saved.includes('baker')?'bread':'empty',i)})
-  for(let i=0;i<5;i++) drawables.push({y:442,x:735+i*18,draw:()=>crate(c,735+i*18,432,saved.includes('grocer')?'veg':'empty',i)})
+  const follower=effects.follower
+  if(follower) drawables.push({...follower,draw:()=>dogArt(c,follower.x,follower.y,Math.floor(clock*11),true,follower.facing)})
+  for(let i=0;i<3;i++) drawables.push({y:579+cityY,x:128+i*20,draw:()=>crate(c,128+i*20,569+cityY,saved.includes('baker')?'bread':'empty',i)})
+  for(let i=0;i<5;i++) drawables.push({y:442+cityY,x:735+i*18,draw:()=>crate(c,735+i*18,432+cityY,saved.includes('grocer')?'veg':'empty',i)})
   if(saved.includes('guard')) {
     for(const {x,y} of [{x:472,y:206},{x:214,y:529},{x:809,y:473}]) {
-      drawables.push({x:x+50,y:y+25,draw:()=>bunting(c,x,y,clock)})
+      drawables.push({x:x+50,y:y+cityY+25,draw:()=>bunting(c,x,y+cityY,clock)})
     }
   }
   c.save()
   c.translate(-camera.x,-camera.y)
+  if(saved.includes('royal')) {
+    bunting(c,395,348,clock)
+    bunting(c,555,348,clock)
+  }
   drawables.filter(o=>o.x>=camera.x-110&&o.x<=camera.x+camera.w+110&&o.y>=camera.y-20&&o.y<=camera.y+camera.h+134)
     .sort((a,b)=>a.y-b.y).forEach(o=>o.draw())
   c.restore()
+}
+
+export function dogTail(c: Ink,t: number,shake: number) {
+  const sx=Math.round(31*Math.sin(t*(shake?22:6)))+shake
+  poly(c,'#593b4b',[179+shake,260,204+shake,260,199+sx,289,186+sx,312,176+sx,310,186+sx,285])
+  poly(c,'#c78d5d',[183+shake,263,198+shake,264,194+sx,287,185+sx,306,179+sx,307,190+sx,282])
+  box(c,'#f1bf7f',181+sx,301,7,4)
+}
+
+function dogBack(c: Ink) {
+  box(c,'#374e44',0,0,384,344)
+  for(let y=0;y<344;y+=16) for(let x=0;x<384;x+=16) {
+    if(grain(x,y)<27) box(c,'#50664d',x+3,y+5,4,2)
+  }
+  poly(c,'#283c3a',[125,86,255,84,271,237,242,290,154,300,114,252])
+  for(const [x,y] of [[121,146],[235,146],[117,248],[239,248]]) {
+    poly(c,'#704b4e',[x-11,y-14,x+25,y-18,x+28,y+21,x+10,y+26,x-14,y+17])
+    box(c,'#b38158',x-7,y-7,27,22)
+    box(c,'#ead09a',x-6,y+14,24,5)
+  }
+  poly(c,'#573a4a',[128,123,148,104,234,101,253,127,251,179,244,205,250,251,230,280,154,284,133,258,138,206])
+  poly(c,'#ae7554',[134,129,152,110,229,108,247,133,243,178,238,208,243,250,224,275,160,278,139,253,144,208])
+  poly(c,'#e4a56d',[144,141,159,115,227,115,238,139,227,161,220,210,229,252,215,264,168,267,153,253,162,205])
+  poly(c,'#7f544d',[161,150,182,128,211,134,225,164,217,193,198,193,191,184,165,189])
+  poly(c,'#f0bd7c',[154,64,167,42,213,42,231,58,234,96,223,121,160,121,149,100])
+  poly(c,'#79494c',[161,62,149,53,127,64,129,112,142,124,156,108])
+  poly(c,'#79494c',[221,58,239,52,255,65,251,113,237,125,222,103])
+  box(c,'#85514c',178,38,30,12)
+  box(c,'#ba5257',157,108,70,11)
+  box(c,'#f9dc8e',185,112,14,12)
+  for(let i=0;i<62;i++) {
+    const x=148+grain(i,31)%90,y=135+grain(i,113)%122
+    box(c,i%2?'#d89964':'#eeb67c',x,y,3,1)
+  }
 }
 
 export function backdrop(c: Ink, w: number, h: number, clock: number, dark = false) {
@@ -383,6 +563,8 @@ export function backdrop(c: Ink, w: number, h: number, clock: number, dark = fal
 }
 
 export function battleBase(c: Ink, p: TownPerson) {
+  if(p.id==='dog') { dogBack(c); return }
+  const royal=p.id==='royal'
   const [base, hi, shade]=p.shirt
   box(c,'#253b3d',0,0,384,344)
   for(let x=0;x<384;x+=24) {
@@ -391,7 +573,16 @@ export function battleBase(c: Ink, p: TownPerson) {
   }
   box(c,'#1b3036',0,288,384,56)
   for(let x=-12;x<384;x+=26) box(c,'#294047',x,302,24,1)
-  const wide=p.id==='guard'?15:p.id==='grocer'?-9:0
+  if(royal) {
+    box(c,'#3c2c46',0,0,384,344)
+    for(const x of [14,339]) {
+      box(c,'#683849',x,0,30,282)
+      box(c,'#a75562',x+4,0,9,282)
+      box(c,'#dfab6e',x,251,30,5)
+    }
+    box(c,'#827080',45,283,294,5)
+  }
+  const wide=p.id==='guard'||p.id==='soldier'?15:p.id==='grocer'?-9:0
   const skin=p.id==='grocer'?'#c98770':'#d59672'
   const skinLight=p.id==='grocer'?'#e7ac87':'#f2bc90'
   const skinDark='#935c56'
@@ -415,6 +606,12 @@ export function battleBase(c: Ink, p: TownPerson) {
     box(c,'#60617a',168,28,49,3)
     box(c,'#9ab879',153,52,83,5)
     poly(c,hair,[180,73,200,73,210,86,208,100,194,105,181,95])
+  } else if(royal) {
+    poly(c,hair,[153,47,171,27,219,27,238,47,236,75,220,90,169,88,153,72])
+    poly(c,'#5b4053',[147,51,144,21,165,31,191,10,216,31,242,21,239,51])
+    poly(c,'#e1ae63',[150,47,148,26,167,36,191,15,215,36,238,26,236,47])
+    box(c,'#fff1a5',157,43,73,4)
+    box(c,'#b84e69',188,28,8,10)
   } else {
     poly(c,hair,[151,49,159,29,175,20,215,19,235,35,241,53,230,79,217,83,170,83,153,70])
     poly(c,'#92aab9',[148,54,148,41,159,27,177,18,209,17,230,24,241,40,244,54])
@@ -446,6 +643,11 @@ export function battleBase(c: Ink, p: TownPerson) {
       box(c,'#c1bf7e',106,153+j*5,42-j*7,1)
       box(c,'#c1bf7e',238+j*7,153+j*5,42-j*7,1)
     }
+  } else if(royal) {
+    poly(c,'#eed7ac',[79,154,132,129,153,117,171,132,215,132,238,118,266,126,301,150,280,151,266,140,215,153,169,153,131,139])
+    box(c,'#e7b56e',99,272,187,5)
+    box(c,'#e7b56e',92,284,200,5)
+    for(const [x,y] of [[174,177],[211,192],[151,236],[207,259],[241,239]]) box(c,'#eab57a',x,y,5,3)
   } else {
     for(let j=0;j<4;j++) {
       box(c,'#abc1c4',76+j*4,161-j*6,27,4)

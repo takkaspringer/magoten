@@ -3,7 +3,7 @@ import { backdrop, fleaArt, hero, personArt, town } from './art'
 import type { Camera } from './art'
 import { Audio } from './audio'
 import { Battle } from './battle'
-import { combo, finale, levels, obstacles, opening, people, world } from './data'
+import { combo, finale, gateBarrier, levels, obstacles, opening, people, world } from './data'
 import type { Point, TownPerson } from './data'
 
 type Screen = 'title' | 'intro' | 'town' | 'battle' | 'result' | 'ending' | 'summary'
@@ -67,11 +67,13 @@ let trialTipSeen=false
 let screen: Screen='title'
 let panel: Panel | undefined
 let panelBack: Panel | undefined
-let dialogue: { person: TownPerson; kind: 'entry' | 'talk' | 'locked'; age: number } | undefined
+let dialogue: { person: TownPerson; kind: 'entry' | 'talk' | 'locked'; line: number } | undefined
 let newConfirm=false
 let intro=0
 let ending=0
 let player={...world.start}
+let gateOpening=save.rescued.includes('guard')?1:0
+let follower: (Point & { facing: number; time: number }) | undefined
 let facing=1
 let moving=false
 let elapsed=0
@@ -158,6 +160,8 @@ function startTown() {
 function startNew() {
   save={...defaults(),music:save.music,effects:save.effects}
   player={...world.start}
+  gateOpening=0
+  follower=undefined
   protectedPerson=''
   returnPosition=undefined
   intro=0
@@ -166,8 +170,11 @@ function startNew() {
 
 function resume() {
   const p=people.find(p=>!save.rescued.includes(p.id))
+  const last=people[people.length-1]
   player=p ? p.id==='baker' ? {...world.start} : { x:p.at.x-52,y:p.at.y+26 }
-    : {x:people[2].at.x-44,y:people[2].at.y+18}
+    : {x:last.at.x-44,y:last.at.y+25}
+  gateOpening=save.rescued.includes('guard')?1:0
+  follower=undefined
   protectedPerson=''
   if(save.rescued.length===people.length && !save.ended) {
     ending=0
@@ -198,6 +205,10 @@ function bubble(speaker: string, line: string, action: string, story=false) {
 
 function townUi() {
   const p=dialogue?.person
+  if(dialogue?.kind==='entry') {
+    const line=dialogue.person.entry[dialogue.line]
+    return bubble(line.speaker,line.text,'next',true)
+  }
   const ready=people.find(p=>!save.rescued.includes(p.id))
   const objective=ready
     ? `${ready.district}の${ready.name}を助けよう`
@@ -212,8 +223,7 @@ function townUi() {
   </div>`
   let talk=''
   if(p && dialogue) {
-    if(dialogue.kind==='entry') talk=bubble(p.name,p.entry,'next')
-    else if(dialogue.kind==='locked') talk=bubble(p.name,p.locked??'困っている人がいるよ！','next')
+    if(dialogue.kind==='locked') talk=bubble(p.name,p.locked??'困っている人がいるよ！','next')
     else {
       talk=`<div class="talk-card"><span class="speaker">${p.name}</span><p>${p.rescued}</p>
         <div class="talk-actions">${save.ended?button('replay','もう一度 チャレンジ','primary'):''}${button('next','とじる','quiet')}</div></div>`
@@ -240,6 +250,7 @@ function resultUi() {
     ${canCombo?`<p class="combo-result">かき出しコンボ <strong>${score.combos}回</strong></p>`:''}
     ${notice?`<p class="level-up">Lv ${level()+1} · ${notice}</p>`:''}
     ${record&&replay?'<p class="level-up">自己ベスト更新！</p>':''}
+    ${!trial&&!replay&&person.id==='grocer'?'<p class="rescue-note">八百屋「ノミの魔族、お城にまで入りこんだらしいよ。」</p>':''}
     <p class="tip">${tip}</p>
     ${trial?button('trial','もう一度 試す','primary')+button('title','タイトルへ','quiet')
       :button('result-next',save.rescued.length===people.length&&!save.ended?'街のみんなに会う':'街へもどる','primary')}
@@ -251,6 +262,7 @@ function summaryUi() {
     <div class="speaker">エンディング</div><h2>背中に、平和が戻った。</h2>
     <p>助けた人 <strong>${save.rescued.length} / ${people.length}</strong> <span class="summary-lv">Lv ${level()+1}</span></p>
     <ul class="summary-list">${people.map(p=>{const s=save.best[p.id];return s?`<li><strong>${p.name}</strong><span>${stars(s.stars)}</span><span>${timeText(s.seconds)}</span></li>`:''}).join('')}</ul>
+    <p class="staff-credit"><strong>スタッフクレジット</strong><br>企画・制作　果糖</p>
     ${button('back-town','街へもどる','primary')}
     ${button('title','タイトルへ','quiet')}
   </section></div>`
@@ -278,7 +290,7 @@ function render() {
       break
     case 'town':
       overlay.innerHTML=townUi()
-      footer.innerHTML='<span class="keyboard-hint"><kbd>↑</kbd> <kbd>←</kbd> <kbd>↓</kbd> <kbd>→</kbd> / <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で移動</span>'
+      footer.innerHTML=dialogue?.kind==='entry'?'タップ、クリック、Enterで進む':'<span class="keyboard-hint"><kbd>↑</kbd> <kbd>←</kbd> <kbd>↓</kbd> <kbd>→</kbd> / <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で移動</span>'
       break
     case 'battle':
       overlay.innerHTML=''
@@ -286,6 +298,7 @@ function render() {
         ${button('pause','<span aria-hidden="true">Ⅱ</span> ポーズ','quiet pause-button')}</div>
         <div class="battle-counters"><div><span class="flea-key" aria-hidden="true">◆</span><span>ノミ</span><strong id="flea-count"></strong></div>
         <div><span class="itch-key" aria-hidden="true">≋</span><span>かゆみ</span><strong id="itch-count"></strong></div></div>
+        ${battle!.person.clasps?.length?'<p id="clasp-count" class="clasp-count"></p>':''}
         <p id="battle-hint" class="battle-hint" aria-live="polite"></p>`
       updateBattleUi()
       footer.textContent=''
@@ -295,7 +308,7 @@ function render() {
       footer.textContent=''
       break
     case 'ending':
-      overlay.innerHTML=bubble(ending===0?'街の住人':'勇者',finale[ending],'next')
+      overlay.innerHTML=bubble(finale[ending].speaker,finale[ending].text,'next',true)
       footer.textContent='タップ、クリック、Enterで進む'
       break
     case 'summary':
@@ -342,11 +355,16 @@ function renderPanel() {
 
 function updateBattleUi() {
   if(!battle) return
-  const next=battle.remainingFleas+'|'+battle.remainingItches+'|'+battle.hint
+  const next=battle.remainingFleas+'|'+battle.remainingItches+'|'+battle.remainingClasps+'|'+battle.hint
   if(next===battleStatus) return
   battleStatus=next
   document.querySelector('#flea-count')!.textContent=`あと ${battle.remainingFleas}匹`
   document.querySelector('#itch-count')!.textContent=`あと ${battle.remainingItches}か所`
+  const clasps=document.querySelector<HTMLElement>('#clasp-count')
+  if(clasps) {
+    clasps.hidden=!battle.remainingClasps
+    clasps.textContent=`留め具 あと ${battle.remainingClasps}個`
+  }
   const hint=document.querySelector<HTMLElement>('#battle-hint')!
   hint.textContent=battle.hint
   hint.classList.toggle('combo-cue',battle.hint.startsWith('いま！')||battle.hint==='かき出しコンボ！')
@@ -378,6 +396,7 @@ function finishBattle() {
     if(!save.rescued.includes(person.id)) {
       save.rescued.push(person.id)
       save.xp+=person.xp
+      if(person.id==='dog') follower={...person.at,facing:1,time:32}
     }
     persist()
     if(returnPosition) player={...returnPosition}
@@ -411,7 +430,10 @@ function advance() {
       go('summary')
     } else { ending++; sceneTime=0; render() }
   } else if(screen==='town'&&dialogue) {
-    if(dialogue.kind==='entry') enterBattle(dialogue.person,false)
+    if(dialogue.kind==='entry') {
+      if(dialogue.line+1===dialogue.person.entry.length) enterBattle(dialogue.person,false)
+      else { dialogue.line++; render() }
+    }
     else {
       dialogue=undefined
       resetInput()
@@ -432,7 +454,11 @@ function action(id: string) {
     case 'resume': resume(); break
     case 'trial': if(directTrial) enterBattle(grocer,false,true); break
     case 'story-title': location.assign(location.pathname); break
-    case 'skip': if(screen==='intro') startTown(); break
+    case 'skip':
+      if(screen==='intro') startTown()
+      else if(screen==='town'&&dialogue?.kind==='entry') enterBattle(dialogue.person,false)
+      else if(screen==='ending') { ending=finale.length-1; advance() }
+      break
     case 'next': advance(); break
     case 'pause': resetInput(); panel='pause'; renderPanel(); break
     case 'help':
@@ -561,8 +587,9 @@ function camera(p: Point, w=canvas.width, h=canvas.height): Camera {
 
 function allowed(x: number,y: number) {
   const r=7
-  return x>=22&&x<=world.w-22&&y>=26&&y<=world.h-23&&!obstacles.some(o=>
-    x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h)
+  const overlaps=(o: typeof gateBarrier)=>x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h
+  return x>=22&&x<=world.w-22&&y>=26&&y<=world.h-23&&
+    (gateOpening>=.96||!overlaps(gateBarrier))&&!obstacles.some(overlaps)
 }
 
 function moveTown(dt: number) {
@@ -572,12 +599,14 @@ function moveTown(dt: number) {
   const norm=Math.hypot(x,y)
   moving=false
   if(!norm) return
-  const vx=x*104*dt/norm,vy=y*104*dt/norm
+  const speed=levels[level()].speed
+  const vx=x*speed*dt/norm,vy=y*speed*dt/norm
   const from={...player}
   if(vx&&allowed(player.x+vx,player.y)) { player.x+=vx; moving=true; facing=Math.sign(x) }
   if(vy&&allowed(player.x,player.y+vy)) { player.y+=vy; moving=true }
   if(moving&&elapsed-lastStep>.27) { lastStep=elapsed; audio.play('step') }
   for(const p of people) {
+    if(p.id==='dog'&&follower) continue
     const d=distance(player,p.at)
     if(p.id===protectedPerson) {
       if(d>36) protectedPerson=''
@@ -588,10 +617,28 @@ function moveTown(dt: number) {
     const kind=save.rescued.includes(p.id)?'talk':people.slice(0,index).some(s=>!save.rescued.includes(s.id))?'locked':'entry'
     returnPosition=from
     protectedPerson=p.id
-    dialogue={person:p,kind,age:0}
+    dialogue={person:p,kind,line:0}
     resetInput()
     render()
     break
+  }
+}
+
+function followPlayer(dt: number) {
+  if(!follower) return
+  follower.time-=dt
+  if(follower.time<=0) { follower=undefined; return }
+  const x=player.x-follower.x,y=player.y-follower.y
+  const gap=Math.hypot(x,y)
+  if(gap<29) return
+  const pace=Math.min(gap-24,levels[level()].speed*dt)
+  const vx=x*pace/gap,vy=y*pace/gap
+  if(Math.abs(vx)>.08) follower.facing=Math.sign(vx)
+  if(allowed(follower.x+vx,follower.y)) follower.x+=vx
+  if(allowed(follower.x,follower.y+vy)) follower.y+=vy
+  if(gap>135) {
+    const near={x:player.x-29*facing,y:player.y+16}
+    if(allowed(near.x,near.y)) Object.assign(follower,near)
   }
 }
 
@@ -620,11 +667,10 @@ function frame(now: number) {
   if(!panel&&!newConfirm) {
     elapsed+=dt
     sceneTime+=dt
+    if(save.rescued.includes('guard')) gateOpening=Math.min(1,gateOpening+dt)
     if(screen==='town') {
-      if(dialogue) {
-        dialogue.age+=dt
-        if(dialogue.kind==='entry'&&dialogue.age>=1.45) advance()
-      } else moveTown(dt)
+      if(!dialogue) moveTown(dt)
+      followPlayer(dt)
     }
     if(screen==='battle'&&battle) {
       battle.update(dt)
@@ -644,7 +690,9 @@ function frame(now: number) {
       c.save()
       c.scale(canvas.width/cam.w,canvas.height/cam.h)
     }
-    town(c,cam,townPlayer,people,save.rescued,elapsed,moving,facing,screen==='ending'||screen==='summary'||(screen==='intro'&&intro===2))
+    town(c,cam,townPlayer,people,save.rescued,elapsed,moving,facing,{
+      gateOpening,follower,legendary:level()===5,proud:screen==='ending'||screen==='summary'||(screen==='intro'&&intro===2),
+    })
     if(screen==='intro'&&intro===2) {
       hero(c,player.x-cam.x,player.y-cam.y,0,1,2,true)
     }
